@@ -1,0 +1,44 @@
+# ============================================
+# .gitignore for Inventory Management System
+# ============================================
+
+# --- Database ---
+*.db
+*.db-journal
+*.db-wal
+
+# --- Large Data Files (CSVs, TXT exports) ---
+*.csv
+*.TXT
+*.tmp
+
+# --- Data directories (synced from ERP, not code) ---
+ledger/
+archived ledger/
+zind archive/
+customer master table/
+product master table/
+product titles/
+engine list/
+forklift brand/
+invoice/
+logo/
+
+# --- Cache & runtime files ---
+__pycache__/
+*.pyc
+*.pyo
+titles_cache.json
+sync_config.json
+
+# --- OS files ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Editor/IDE files ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -1,0 +1,3665 @@
+// Category name mapping: English -> Thai
+const CATEGORY_NAME_TH = {
+    'Domestic Purchase': 'ซื้อในประเทศ',
+    'Overseas Purchase': 'ซื้อต่างประเทศ',
+    'Customer Return': 'รับคืนจากลูกค้า',
+    'Other In': 'รับอื่นๆ',
+    'Adjustment In': 'ปรับปรุงเข้า',
+    'Transfer In': 'ย้ายเข้า',
+    'AF': 'AF',
+    'SF': 'SF',
+    'Sale': 'ขาย',
+    'Return to Manufacturer': 'คืนผู้ผลิต',
+    'Other Out': 'จ่ายอื่นๆ',
+    'Adjustment Out': 'ปรับปรุงออก',
+    'Transfer Out': 'ย้ายออก',
+    'Other': 'อื่นๆ',
+    'Opening Balance': 'ยอดยกมา',
+};
+
+function getCategoryThai(englishName) {
+    return CATEGORY_NAME_TH[englishName] || englishName || '-';
+}
+
+// State management
+let state = {
+    products: [],
+    totalItems: 0,
+    page: 1,
+    perPage: 50,
+    totalPages: 0,
+    search: '',
+    brand: '',
+    suffix: '',
+    activeDays: '', // new filter
+    sort: 'last_sold_date',
+    sortDir: 'desc',
+    brands: [],
+    suffixes: [],
+
+    // Moves State
+    moves: [],
+    movesTotalItems: 0,
+    movesPage: 1,
+    movesPerPage: 50,
+    movesTotalPages: 0,
+    movesSearch: '',
+    movesType: 'all', // 'all', 'in', 'out'
+    movesSort: '',
+    movesSortDir: '',
+
+    // Flags State
+    flags: [],
+    flagsSearch: '',
+    flagsPage: 1,
+    flagsPerPage: 50,
+    flagsTotalItems: 0,
+    flagsTotalPages: 0,
+    flagsSort: '',
+    flagsSortDir: '',
+
+    // Customer Activity State
+    customerActivity: [],
+    customerSearch: '',
+    customers: [],
+    customersPage: 1,
+    customersPerPage: 50,
+    customersTotalItems: 0,
+    customersTotalPages: 0,
+    customerDetailCode: null,  // when set, we're in detail mode
+
+    // Invoice State
+    invoices: [],
+    invoicesSearch: '',
+    invoicesDocType: '',
+    invoicesPage: 1,
+    invoicesPerPage: 50,
+    invoicesTotalItems: 0,
+    invoicesTotalPages: 0,
+    invoicesSort: 'invoice_date',
+    invoicesSortDir: 'desc',
+    invoiceDetailNumber: null,  // when set, we're in detail mode
+
+    // Modal navigation
+    modalList: [],
+    modalIndex: -1,
+
+    currentTab: 'products', // 'products', 'moves', 'flags', 'customer', 'invoice'
+
+    // Sync change highlighting — sets of keys for newly detected items
+    syncNewProductSkus: new Set(),
+    syncNewMoveKeys: new Set(),
+    syncDetectionTimes: new Map(),   // sku -> time string (for today's sales)
+};
+
+// DOM Elements
+const els = {
+    // Tabs Navigation
+    tabBtnProducts: document.getElementById('tab-btn-products'),
+    tabBtnMoves: document.getElementById('tab-btn-moves'),
+    tabBtnFlags: document.getElementById('tab-btn-flags'),
+    tabBtnCustomer: document.getElementById('tab-btn-customer'),
+
+    // Views
+    viewProducts: document.getElementById('view-products'),
+    viewMoves: document.getElementById('view-moves'),
+    viewFlags: document.getElementById('view-flags'),
+    viewCustomer: document.getElementById('view-customer'),
+
+    // Stats
+    totalSkus: document.getElementById('total-skus'),
+
+    // Controls - Products
+    searchInput: document.getElementById('search-input'),
+    brandFilter: document.getElementById('brand-filter'),
+    suffixFilter: document.getElementById('suffix-filter'),
+    activeFilter: document.getElementById('active-filter'), // New
+    sortFilter: document.getElementById('sort-filter'),
+    sortDirBtn: document.getElementById('sort-dir-btn'),
+    sortIconAsc: document.getElementById('sort-icon-asc'),
+    sortIconDesc: document.getElementById('sort-icon-desc'),
+    thumbSizeSlider: document.getElementById('thumb-size-slider'),
+
+    // Table - Products
+    productList: document.getElementById('product-list'),
+    resultsCount: document.getElementById('results-count'),
+    colAmountSold: document.getElementById('col-amount-sold'), // New
+
+    // Pagination - Products
+    pageStart: document.getElementById('page-start'),
+    pageEnd: document.getElementById('page-end'),
+    totalResults: document.getElementById('total-results'),
+    btnPrev: document.getElementById('btn-prev'),
+    btnNext: document.getElementById('btn-next'),
+    pageNumbers: document.getElementById('page-numbers'),
+
+    // Controls - Moves
+    movesSearchInput: document.getElementById('moves-search-input'),
+    movesTypeFilter: document.getElementById('moves-type-filter'),
+
+    // Table - Moves
+    movesList: document.getElementById('moves-list'),
+    movesResultsCount: document.getElementById('moves-results-count'),
+
+    // Pagination - Moves
+    movesPageStart: document.getElementById('moves-page-start'),
+    movesPageEnd: document.getElementById('moves-page-end'),
+    movesTotalResults: document.getElementById('moves-total-results'),
+    movesBtnPrev: document.getElementById('moves-btn-prev'),
+    movesBtnNext: document.getElementById('moves-btn-next'),
+    movesPageNumbers: document.getElementById('moves-page-numbers'),
+
+    // Controls - Flags
+    flagsSearchInput: document.getElementById('flags-search-input'),
+
+    // Table - Flags
+    flagsList: document.getElementById('flags-list'),
+    flagsResultsCount: document.getElementById('flags-results-count'),
+
+    // Pagination - Flags
+    flagsPageStart: document.getElementById('flags-page-start'),
+    flagsPageEnd: document.getElementById('flags-page-end'),
+    flagsTotalResults: document.getElementById('flags-total-results'),
+    flagsBtnPrev: document.getElementById('flags-btn-prev'),
+    flagsBtnNext: document.getElementById('flags-btn-next'),
+    flagsPageNumbers: document.getElementById('flags-page-numbers'),
+
+    // Customer Activity
+    customerSearchInput: document.getElementById('customer-search-input'),
+    customerResultsCount: document.getElementById('customer-results-count'),
+    customerList: document.getElementById('customer-list'),
+    customerListPanel: document.getElementById('customer-list-panel'),
+    customerDetailPanel: document.getElementById('customer-detail-panel'),
+    customerInfoCard: document.getElementById('customer-info-card'),
+    custDetailTxnCount: document.getElementById('cust-detail-txn-count'),
+    custDetailTxnList: document.getElementById('cust-detail-txn-list'),
+    custBackBtn: document.getElementById('cust-back-btn'),
+    // Customer list pagination
+    custPageStart: document.getElementById('cust-page-start'),
+    custPageEnd: document.getElementById('cust-page-end'),
+    custTotalResults: document.getElementById('cust-total-results'),
+    custBtnPrev: document.getElementById('cust-btn-prev'),
+    custBtnNext: document.getElementById('cust-btn-next'),
+    custPageNumbers: document.getElementById('cust-page-numbers'),
+    // Refresh Customer
+    refreshCustomerBtn: document.getElementById('refresh-customer-btn'),
+    customerModDate: document.getElementById('customer-mod-date'),
+
+    // Modal
+    modal: document.getElementById('product-modal'),
+    closeModal: document.getElementById('close-modal'),
+    modalMainImg: document.getElementById('modal-main-image'),
+    mainImageTrashBtn: document.getElementById('main-image-trash-btn'),
+    modalThumbnails: document.getElementById('modal-thumbnails'),
+    modalSuffixLabel: document.getElementById('modal-suffix-label'),
+    modalPartCode: document.getElementById('modal-part-code'),
+    modalNameEng: document.getElementById('modal-name-eng'),
+    modalNameThai: document.getElementById('modal-name-thai'),
+    modalBrand: document.getElementById('modal-brand'),
+    modalSize: document.getElementById('modal-size'),
+    modalQty: document.getElementById('modal-qty'),
+    modalPrice: document.getElementById('modal-price'),
+    modalHistory: document.getElementById('modal-history'),
+    modalArchivedHistory: document.getElementById('modal-archived-history'),
+    modalPossibleTitles: document.getElementById('modal-possible-titles'),
+
+    // Modal Flagging Elements
+    btnReportIssue: document.getElementById('btn-report-issue'),
+    reportDialog: document.getElementById('report-dialog'),
+    btnCancelReport: document.getElementById('btn-cancel-report'),
+    btnSubmitReport: document.getElementById('btn-submit-report'),
+    reportNote: document.getElementById('report-note'),
+    flagTypeRadios: document.getElementsByName('flag_type'),
+
+    // Refresh Master
+    refreshMasterBtn: document.getElementById('refresh-master-btn'),
+    masterModDate: document.getElementById('master-mod-date'),
+    refreshLedgerBtn: document.getElementById('refresh-ledger-btn'),
+    ledgerModDate: document.getElementById('ledger-mod-date'),
+
+    // Modal Navigation
+    modalPrevBtn: document.getElementById('modal-prev-btn'),
+    modalNextBtn: document.getElementById('modal-next-btn'),
+    modalNavIndicator: document.getElementById('modal-nav-indicator'),
+    modalNavControls: document.getElementById('modal-nav-controls'),
+
+    // Charts
+    archivedHistoryChart: document.getElementById('archived-history-chart'),
+
+    // Sales by Year
+    modalSalesByYear: document.getElementById('modal-sales-by-year'),
+    salesByYearGrid: document.getElementById('sales-by-year-grid'),
+
+    // Invoice Tab
+    tabBtnInvoice: document.getElementById('tab-btn-invoice'),
+    viewInvoice: document.getElementById('view-invoice'),
+    invoiceSearchInput: document.getElementById('invoice-search-input'),
+    invoiceDocTypeFilter: document.getElementById('invoice-doctype-filter'),
+    invoiceList: document.getElementById('invoice-list'),
+    invoiceResultsCount: document.getElementById('invoice-results-count'),
+    invPageStart: document.getElementById('inv-page-start'),
+    invPageEnd: document.getElementById('inv-page-end'),
+    invTotalResults: document.getElementById('inv-total-results'),
+    invBtnPrev: document.getElementById('inv-btn-prev'),
+    invBtnNext: document.getElementById('inv-btn-next'),
+    invPageNumbers: document.getElementById('inv-page-numbers'),
+    invoiceListPanel: document.getElementById('invoice-list-panel'),
+    invoiceDetailPanel: document.getElementById('invoice-detail-panel'),
+    invBackBtn: document.getElementById('inv-back-btn'),
+    invoiceInfoCard: document.getElementById('invoice-info-card'),
+    invDetailItemCount: document.getElementById('inv-detail-item-count'),
+    invDetailItemsList: document.getElementById('inv-detail-items-list'),
+    refreshInvoiceBtn: document.getElementById('refresh-invoice-btn'),
+    invoiceModDate: document.getElementById('invoice-mod-date'),
+
+    // Import CSV
+    importCsvBtn: document.getElementById('import-csv-btn'),
+    importCsvModal: document.getElementById('import-csv-modal'),
+    importCsvClose: document.getElementById('import-csv-close'),
+    importCsvPath: document.getElementById('import-csv-path'),
+    importCsvGo: document.getElementById('import-csv-go'),
+    importCsvStatus: document.getElementById('import-csv-status')
+};
+
+// Global chart instances
+let archivedChartInstance = null;
+
+// Format utilities
+const formatNumber = (num) => new Intl.NumberFormat('en-US').format(num);
+const formatPrice = (num) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(num);
+
+// Date formatting to Buddhist Era (BE)
+function formatBuddhistDate(dateStr, includeTime = false) {
+    if (!dateStr || dateStr === '-') return '-';
+
+    // Handle YYYY-MM-DD
+    if (typeof dateStr === 'string' && dateStr.includes('-') && dateStr.length <= 10) {
+        let parts = dateStr.split('-');
+        if (parts.length === 3) {
+            const year = parseInt(parts[0], 10);
+            // Handle if it's already BE (e.g., > 2500)
+            const beYear = year > 2500 ? year : year + 543;
+            return `${parts[2]}/${parts[1]}/${beYear}`;
+        }
+    }
+
+    // Handle full Date objects, ISO strings, etc.
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const beYear = y > 2500 ? y : y + 543;
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+
+        let result = `${day}/${m}/${beYear}`;
+
+        if (includeTime) {
+            const h = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            result += ` ${h}:${min}`;
+        }
+        return result;
+    }
+
+    return dateStr;
+}
+
+// ─── History / Hash-based Navigation ──────────────────────────────────────
+// We push history entries so the browser back/forward buttons work intuitively.
+// Hash format:  #products | #moves | #flags | #customer | #invoice
+//               #product/<sku>
+//               #customer/<code>
+//               #invoice/<number>
+
+/** Push a new history entry (unless we're already at that hash). */
+function navPush(hash) {
+    if (location.hash === '#' + hash || location.hash === hash) return;
+    history.pushState({ nav: hash }, '', '#' + hash);
+}
+
+/** Replace the current history entry without creating a new one. */
+function navReplace(hash) {
+    history.replaceState({ nav: hash }, '', '#' + hash);
+}
+
+/** True while we are programmatically handling a popstate to avoid re-entrant pushes. */
+let _handlingPopstate = false;
+
+/**
+ * Central router – called both on popstate AND on initial load.
+ * Reads `location.hash` and shows the correct view.
+ */
+function handleNavigation() {
+    const hash = location.hash.replace(/^#/, '') || 'products';
+
+    // ── Product modal: #product/<sku> ────────────────────────
+    if (hash.startsWith('product/')) {
+        const sku = decodeURIComponent(hash.slice('product/'.length));
+        // If the modal is already showing this product, nothing to do
+        if (!els.modal.classList.contains('hidden') && state.currentModalSku === sku) return;
+        // Find the product in the current list and open it
+        const idx = state.modalList?.findIndex(p => p.sku === sku) ?? -1;
+        if (idx >= 0) {
+            // Product is in the current list – use it directly
+            openModalInternal(state.modalList[idx]);
+            state.modalIndex = idx;
+            updateModalNav();
+        } else {
+            // Product not in modalList (e.g. page was refreshed) – fetch from server
+            fetchProductDetail(sku).then(product => {
+                if (product) {
+                    openModalInternal(product);
+                } else {
+                    // Fallback: open with minimal data (better than nothing)
+                    openModalInternal({ sku });
+                }
+            });
+        }
+        return;
+    }
+
+    // ── If the product modal is open but we navigated away, close it ──
+    if (!els.modal.classList.contains('hidden')) {
+        closeModalInternal();
+    }
+
+    // ── Customer detail: #customer/<code> ────────────────────
+    if (hash.startsWith('customer/')) {
+        const code = decodeURIComponent(hash.slice('customer/'.length));
+        switchTabInternal('customer');
+        openCustomerDetailInternal(code);
+        return;
+    }
+
+    // ── Invoice detail: #invoice/<number> ────────────────────
+    if (hash.startsWith('invoice/')) {
+        const num = decodeURIComponent(hash.slice('invoice/'.length));
+        switchTabInternal('invoice');
+        openInvoiceDetail(num);
+        return;
+    }
+
+    // ── Plain tab: #products | #moves | #flags | #customer | #invoice ──
+    const tabName = hash || 'products';
+    const validTabs = ['products', 'moves', 'flags', 'customer', 'invoice'];
+    if (validTabs.includes(tabName)) {
+        // If we're going back to #customer from customer detail, show list
+        if (tabName === 'customer' && state.customerDetailCode) {
+            state.customerDetailCode = null;
+            showCustomerListMode();
+        }
+        // If we're going back to #invoice from invoice detail, show list
+        if (tabName === 'invoice' && state.invoiceDetailNumber) {
+            state.invoiceDetailNumber = null;
+            showInvoiceListMode();
+        }
+        switchTabInternal(tabName);
+    }
+}
+
+// Initialize app
+async function init() {
+    setupEventListeners();
+    await fetchStats();
+    await fetchFilters();
+    await fetchProducts();
+
+    // Set up sortable headers for all tables (reusable for any future table)
+    setupSortableHeaders('#view-products .data-table', 'sort', 'sortDir', fetchProducts, 'last_sold_date', 'desc');
+    setupSortableHeaders('#view-moves .data-table', 'movesSort', 'movesSortDir', fetchMoves, '', '');
+    setupSortableHeaders('#view-flags .data-table', 'flagsSort', 'flagsSortDir', fetchFlags, '', '');
+    setupSortableHeaders('#invoice-table', 'invoicesSort', 'invoicesSortDir', fetchInvoices, 'invoice_date', 'desc');
+
+    // Load sync changes from server (for users arriving after a sync completed)
+    await loadSyncChanges();
+
+    // Set initial hash (replaceState so we don't add an extra entry)
+    if (!location.hash) {
+        navReplace('products');
+    } else {
+        // Restore from hash on page load / refresh
+        handleNavigation();
+    }
+}
+
+// Fetch last sync changes from server so new page loads see highlights
+async function loadSyncChanges() {
+    try {
+        const res = await fetch('/api/sync/changes');
+        const data = await res.json();
+        if (data.changed_product_skus && data.changed_product_skus.length > 0) {
+            state.syncNewProductSkus = new Set(data.changed_product_skus);
+            if (data.detection_times) {
+                state.syncDetectionTimes = new Map(Object.entries(data.detection_times));
+            }
+            renderProducts();
+            console.log(`[AutoSync] Loaded ${data.changed_product_skus.length} product highlight(s) from server`);
+        }
+        if (data.new_move_keys && data.new_move_keys.length > 0) {
+            state.syncNewMoveKeys = new Set(data.new_move_keys);
+            console.log(`[AutoSync] Loaded ${data.new_move_keys.length} move highlight(s) from server`);
+        }
+    } catch (err) {
+        // Not critical — highlights just won't show for new arrivals
+        console.log('[AutoSync] No sync changes available from server');
+    }
+}
+
+/**
+ * Generic sortable table headers utility.
+ * Clicking a header toggles: Natural → Ascending → Descending → Natural.
+ * 
+ * @param {string} tableSelector - CSS selector for the table element
+ * @param {string} sortKey       - state property name for the sort column (e.g. 'sort', 'movesSort')
+ * @param {string} dirKey        - state property name for the sort direction (e.g. 'sortDir', 'movesSortDir')
+ * @param {Function} fetchFn     - function to call after sort changes
+ * @param {string} defaultSort   - default sort column when in 'natural' mode
+ * @param {string} defaultDir    - default direction when in 'natural' mode
+ */
+function setupSortableHeaders(tableSelector, sortKey, dirKey, fetchFn, defaultSort, defaultDir) {
+    const table = document.querySelector(tableSelector);
+    if (!table) return;
+
+    const headers = table.querySelectorAll('th.sortable');
+    headers.forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            if (!col) return;
+
+            const currentSort = state[sortKey];
+            const currentDir = state[dirKey];
+
+            // Three-state toggle: natural → asc → desc → natural
+            if (currentSort !== col) {
+                // Clicking a new column: start ascending
+                state[sortKey] = col;
+                state[dirKey] = 'asc';
+            } else if (currentDir === 'asc') {
+                // Same column, currently asc → switch to desc
+                state[dirKey] = 'desc';
+            } else {
+                // Same column, currently desc → reset to natural
+                state[sortKey] = defaultSort;
+                state[dirKey] = defaultDir;
+            }
+
+            // Update visual indicators across all headers in this table
+            headers.forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc', 'sort-active');
+            });
+
+            if (state[sortKey] && state[sortKey] === col) {
+                th.classList.add('sort-active');
+                th.classList.add(state[dirKey] === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+
+            // Reset to page 1 and re-fetch
+            if (sortKey === 'sort') state.page = 1;
+            else if (sortKey === 'movesSort') state.movesPage = 1;
+            else if (sortKey === 'flagsSort') state.flagsPage = 1;
+            else if (sortKey === 'invoicesSort') state.invoicesPage = 1;
+
+            fetchFn();
+        });
+    });
+
+    // Set initial visual state if there's a default sort
+    if (defaultSort) {
+        headers.forEach(th => {
+            if (th.dataset.sort === defaultSort) {
+                th.classList.add('sort-active', defaultDir === 'asc' ? 'sort-asc' : 'sort-desc');
+            }
+        });
+    }
+}
+
+// Event Listeners
+function setupEventListeners() {
+    // Tabs Navigation
+    els.tabBtnProducts.addEventListener('click', () => switchTab('products'));
+    els.tabBtnMoves.addEventListener('click', () => switchTab('moves'));
+    els.tabBtnFlags.addEventListener('click', () => switchTab('flags'));
+    if (els.tabBtnCustomer) els.tabBtnCustomer.addEventListener('click', () => switchTab('customer'));
+    if (els.tabBtnInvoice) els.tabBtnInvoice.addEventListener('click', () => switchTab('invoice'));
+
+    // --- PRODUCTS ---
+    let debounceTimer;
+    els.searchInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            state.search = e.target.value;
+            state.page = 1;
+            fetchProducts();
+        }, 400);
+    });
+
+    els.brandFilter.addEventListener('change', (e) => {
+        state.brand = e.target.value;
+        state.page = 1;
+        fetchProducts();
+    });
+
+    els.suffixFilter.addEventListener('change', (e) => {
+        state.suffix = e.target.value;
+        state.page = 1;
+        fetchProducts();
+    });
+
+    els.activeFilter.addEventListener('change', (e) => {
+        state.activeDays = e.target.value;
+        state.page = 1;
+        fetchProducts();
+    });
+
+    els.sortFilter.addEventListener('change', (e) => {
+        state.sort = e.target.value;
+        state.page = 1;
+        fetchProducts();
+    });
+
+    els.thumbSizeSlider.addEventListener('input', (e) => {
+        document.documentElement.style.setProperty('--thumb-size', `${e.target.value}px`);
+    });
+    document.documentElement.style.setProperty('--thumb-size', `${els.thumbSizeSlider.value}px`);
+
+    els.sortDirBtn.addEventListener('click', () => {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+        if (state.sortDir === 'asc') {
+            els.sortIconAsc.classList.remove('hidden');
+            els.sortIconDesc.classList.add('hidden');
+        } else {
+            els.sortIconAsc.classList.add('hidden');
+            els.sortIconDesc.classList.remove('hidden');
+        }
+        state.page = 1;
+        fetchProducts();
+    });
+
+    els.btnPrev.addEventListener('click', () => {
+        if (state.page > 1) { state.page--; fetchProducts(); }
+    });
+
+    els.btnNext.addEventListener('click', () => {
+        if (state.page < state.totalPages) { state.page++; fetchProducts(); }
+    });
+
+
+    // --- MOVES ---
+    let movesDebounce;
+    els.movesSearchInput.addEventListener('input', (e) => {
+        clearTimeout(movesDebounce);
+        movesDebounce = setTimeout(() => {
+            state.movesSearch = e.target.value;
+            state.movesPage = 1;
+            fetchMoves();
+        }, 400);
+    });
+
+    els.movesTypeFilter.addEventListener('change', (e) => {
+        state.movesType = e.target.value;
+        state.movesPage = 1;
+        fetchMoves();
+    });
+
+    els.movesBtnPrev.addEventListener('click', () => {
+        if (state.movesPage > 1) { state.movesPage--; fetchMoves(); }
+    });
+
+    els.movesBtnNext.addEventListener('click', () => {
+        if (state.movesPage < state.movesTotalPages) { state.movesPage++; fetchMoves(); }
+    });
+
+    // Modal
+    els.closeModal.addEventListener('click', closeModal);
+    els.modal.addEventListener('click', (e) => {
+        if (e.target === els.modal) closeModal();
+    });
+
+    // Main image trash button (hide the currently displayed image)
+    els.mainImageTrashBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const filename = els.modalMainImg.dataset.filename;
+        if (filename) hideImage(filename);
+    });
+
+    // Modal keyboard shortcuts (Escape, ArrowUp, ArrowDown)
+    document.addEventListener('keydown', (e) => {
+        if (els.modal.classList.contains('hidden')) return;
+
+        // Don't intercept when typing in an input/textarea
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+        if (e.key === 'Escape') {
+            closeModal();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            navigateModal(-1);
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            navigateModal(1);
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            const thumbs = els.modalThumbnails.querySelectorAll('.gallery-thumb');
+            if (thumbs.length <= 1) return;
+            const activeThumb = els.modalThumbnails.querySelector('.gallery-thumb.active');
+            let currentIdx = activeThumb ? Array.from(thumbs).indexOf(activeThumb) : 0;
+            if (e.key === 'ArrowLeft') {
+                currentIdx = (currentIdx - 1 + thumbs.length) % thumbs.length;
+            } else {
+                currentIdx = (currentIdx + 1) % thumbs.length;
+            }
+            thumbs[currentIdx].click();
+        }
+    });
+
+    // Modal navigation buttons
+    els.modalPrevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigateModal(-1);
+    });
+    els.modalNextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigateModal(1);
+    });
+
+    // ── Unified popstate handler ──────────────────────────────────────
+    window.addEventListener('popstate', () => {
+        _handlingPopstate = true;
+        handleNavigation();
+        _handlingPopstate = false;
+    });
+
+    // Flags Specific Event Listeners
+    let flagsDebounce;
+    els.flagsSearchInput.addEventListener('input', (e) => {
+        clearTimeout(flagsDebounce);
+        flagsDebounce = setTimeout(() => {
+            state.flagsSearch = e.target.value;
+            state.flagsPage = 1;
+            fetchFlags();
+        }, 400);
+    });
+
+    els.flagsBtnPrev.addEventListener('click', () => {
+        if (state.flagsPage > 1) { state.flagsPage--; fetchFlags(); }
+    });
+
+    els.flagsBtnNext.addEventListener('click', () => {
+        if (state.flagsPage < state.flagsTotalPages) { state.flagsPage++; fetchFlags(); }
+    });
+
+    // --- Resolve (unflag) button – delegated listener on the tbody so it survives re-renders ---
+    els.flagsList.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.unflag-btn');
+        if (!btn) return;
+        e.stopPropagation();
+        const sku = btn.dataset.sku;
+        if (!confirm('ยืนยันการ Resolve รายการนี้?')) return;
+        try {
+            btn.disabled = true;
+            const res = await fetch(`/api/products/${sku}/flag`, { method: 'DELETE' });
+            if (res.ok) {
+                fetchFlags();
+                fetchProducts();
+            } else {
+                alert('Failed to unflag.');
+                btn.disabled = false;
+            }
+        } catch (err) {
+            console.error(err);
+            btn.disabled = false;
+        }
+    });
+
+    // --- CUSTOMER ACTIVITY ---
+    let customerDebounce;
+    if (els.customerSearchInput) {
+        els.customerSearchInput.addEventListener('input', (e) => {
+            clearTimeout(customerDebounce);
+            customerDebounce = setTimeout(() => {
+                state.customerSearch = e.target.value.trim();
+                state.customersPage = 1;
+                // If in detail mode, go back to list
+                state.customerDetailCode = null;
+                fetchCustomers();
+            }, 400);
+        });
+    }
+
+    // Customer list pagination
+    if (els.custBtnPrev) {
+        els.custBtnPrev.addEventListener('click', () => {
+            if (state.customersPage > 1) { state.customersPage--; fetchCustomers(); }
+        });
+    }
+    if (els.custBtnNext) {
+        els.custBtnNext.addEventListener('click', () => {
+            if (state.customersPage < state.customersTotalPages) { state.customersPage++; fetchCustomers(); }
+        });
+    }
+
+    // Customer back button – use browser back so history stays consistent
+    if (els.custBackBtn) {
+        els.custBackBtn.addEventListener('click', () => {
+            history.back();
+        });
+    }
+
+    // --- INVOICE ---
+    let invoiceDebounce;
+    if (els.invoiceSearchInput) {
+        els.invoiceSearchInput.addEventListener('input', (e) => {
+            clearTimeout(invoiceDebounce);
+            invoiceDebounce = setTimeout(() => {
+                state.invoicesSearch = e.target.value.trim();
+                state.invoicesPage = 1;
+                state.invoiceDetailNumber = null;
+                showInvoiceListMode();
+                fetchInvoices();
+            }, 400);
+        });
+    }
+
+    if (els.invoiceDocTypeFilter) {
+        els.invoiceDocTypeFilter.addEventListener('change', (e) => {
+            state.invoicesDocType = e.target.value;
+            state.invoicesPage = 1;
+            fetchInvoices();
+        });
+    }
+
+    if (els.invBtnPrev) {
+        els.invBtnPrev.addEventListener('click', () => {
+            if (state.invoicesPage > 1) { state.invoicesPage--; fetchInvoices(); }
+        });
+    }
+    if (els.invBtnNext) {
+        els.invBtnNext.addEventListener('click', () => {
+            if (state.invoicesPage < state.invoicesTotalPages) { state.invoicesPage++; fetchInvoices(); }
+        });
+    }
+
+    // Invoice back button – use browser back so history stays consistent
+    if (els.invBackBtn) {
+        els.invBackBtn.addEventListener('click', () => {
+            history.back();
+        });
+    }
+
+    // Refresh Customer button — non-blocking background sync
+    if (els.refreshCustomerBtn) {
+        els.refreshCustomerBtn.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/sync/trigger/customer', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    console.log('Customer sync triggered in background');
+                } else {
+                    alert(data.message || 'Already syncing');
+                }
+            } catch (err) {
+                console.error('Customer sync trigger error:', err);
+            }
+        });
+    }
+
+    // Refresh Invoice button — non-blocking background sync
+    if (els.refreshInvoiceBtn) {
+        els.refreshInvoiceBtn.addEventListener('click', async () => {
+            try {
+                const res = await fetch('/api/sync/trigger/invoice', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    console.log('Invoice sync triggered in background');
+                } else {
+                    alert(data.message || 'Already syncing');
+                }
+            } catch (err) {
+                console.error('Invoice sync trigger error:', err);
+            }
+        });
+    }
+
+    // Handle Report Dialog Open/Close
+    els.btnReportIssue.addEventListener('click', () => {
+        els.btnReportIssue.classList.add('hidden');
+        els.reportDialog.classList.remove('hidden');
+    });
+
+    els.btnCancelReport.addEventListener('click', () => {
+        els.btnReportIssue.classList.remove('hidden');
+        els.reportDialog.classList.add('hidden');
+        // Reset form
+        els.reportNote.value = '';
+        els.flagTypeRadios.forEach(r => r.checked = false);
+    });
+
+    els.btnSubmitReport.addEventListener('click', submitFlag);
+
+    // Refresh Master button — non-blocking background sync
+    els.refreshMasterBtn.addEventListener('click', async () => {
+        try {
+            const res = await fetch('/api/sync/trigger/master', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                console.log('Master sync triggered in background');
+            } else {
+                alert(data.message || 'Already syncing');
+            }
+        } catch (err) {
+            console.error('Master sync trigger error:', err);
+        }
+    });
+
+    // Refresh Ledger button — non-blocking background sync
+    els.refreshLedgerBtn.addEventListener('click', async () => {
+        try {
+            const res = await fetch('/api/sync/trigger/ledger', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                console.log('Ledger sync triggered in background');
+            } else {
+                alert(data.message || 'Already syncing');
+            }
+        } catch (err) {
+            console.error('Ledger sync trigger error:', err);
+        }
+    });
+
+    // --- IMPORT CSV ---
+    if (els.importCsvBtn) {
+        els.importCsvBtn.addEventListener('click', () => {
+            // Restore last-used path from localStorage
+            const savedPath = localStorage.getItem('importCsvLastPath');
+            if (savedPath && els.importCsvPath) {
+                els.importCsvPath.value = savedPath;
+            }
+            els.importCsvStatus.classList.add('hidden');
+            els.importCsvModal.classList.remove('hidden');
+        });
+    }
+    if (els.importCsvClose) {
+        els.importCsvClose.addEventListener('click', () => {
+            els.importCsvModal.classList.add('hidden');
+        });
+    }
+    if (els.importCsvModal) {
+        els.importCsvModal.addEventListener('click', (e) => {
+            if (e.target === els.importCsvModal) els.importCsvModal.classList.add('hidden');
+        });
+    }
+    if (els.importCsvGo) {
+        els.importCsvGo.addEventListener('click', importCsvFromFolder);
+    }
+    if (els.importCsvPath) {
+        els.importCsvPath.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') importCsvFromFolder();
+        });
+    }
+}
+
+// Import CSV from folder
+async function importCsvFromFolder() {
+    const folderPath = els.importCsvPath.value.trim();
+    if (!folderPath) {
+        els.importCsvStatus.classList.remove('hidden');
+        els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
+        els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        els.importCsvStatus.innerHTML = '⚠️ Please enter a folder path.';
+        return;
+    }
+
+    // Show loading
+    els.importCsvGo.disabled = true;
+    els.importCsvGo.textContent = 'Importing...';
+    els.importCsvStatus.classList.remove('hidden');
+    els.importCsvStatus.style.background = 'rgba(59, 130, 246, 0.1)';
+    els.importCsvStatus.style.border = '1px solid rgba(59, 130, 246, 0.2)';
+    els.importCsvStatus.innerHTML = '<div class="spinner" style="width:20px;height:20px;margin:0 auto;"></div><p style="text-align:center;margin-top:0.5rem;">Importing and reloading caches...</p>';
+
+    try {
+        const res = await fetch('/api/import-csv-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_path: folderPath })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            // Save path
+            localStorage.setItem('importCsvLastPath', folderPath);
+
+            // Build success HTML
+            let html = '<div style="color: #86efac; font-weight: 600; margin-bottom: 0.5rem;">✅ ' + data.message + '</div>';
+
+            if (data.imported && data.imported.length > 0) {
+                html += '<div style="margin-bottom: 0.5rem;"><strong>Imported:</strong></div>';
+                html += '<ul style="margin: 0; padding-left: 1.25rem;">';
+                for (const f of data.imported) {
+                    html += `<li style="color: #86efac;">${f.file} <span style="color: var(--text-secondary);">(${f.size_mb} MB)</span></li>`;
+                }
+                html += '</ul>';
+            }
+
+            if (data.details) {
+                html += '<div style="margin-top: 0.5rem; color: var(--text-secondary);">';
+                for (const [key, val] of Object.entries(data.details)) {
+                    html += `<div>• ${key}: ${val}</div>`;
+                }
+                html += '</div>';
+            }
+
+            if (data.skipped && data.skipped.length > 0) {
+                html += `<div style="margin-top: 0.5rem; color: var(--text-muted);">Skipped (not found): ${data.skipped.join(', ')}</div>`;
+            }
+
+            els.importCsvStatus.style.background = 'rgba(34, 197, 94, 0.1)';
+            els.importCsvStatus.style.border = '1px solid rgba(34, 197, 94, 0.25)';
+            els.importCsvStatus.innerHTML = html;
+
+            // Refresh app data
+            await fetchStats();
+            if (state.currentTab === 'products') await fetchProducts();
+            if (state.currentTab === 'customer') fetchCustomers();
+            if (state.currentTab === 'invoice') fetchInvoices();
+            if (state.currentTab === 'moves') fetchMoves();
+        } else {
+            els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
+            els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+            let errHtml = `⚠️ ${data.message}`;
+            if (data.skipped && data.skipped.length > 0) {
+                errHtml += `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">Expected files: ${data.skipped.join(', ')}</div>`;
+            }
+            els.importCsvStatus.innerHTML = errHtml;
+        }
+    } catch (err) {
+        console.error('Import CSV error:', err);
+        els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
+        els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        els.importCsvStatus.innerHTML = '⚠️ Import failed. Check console for details.';
+    }
+
+    els.importCsvGo.disabled = false;
+    els.importCsvGo.textContent = 'Import';
+}
+
+// API Calls
+async function fetchStats() {
+    try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        els.totalSkus.textContent = formatNumber(data.total_skus);
+        if (els.ledgerModDate && data.ledger_mod_date) {
+            els.ledgerModDate.textContent = `Updated: ${data.ledger_mod_date}`;
+        }
+        if (els.masterModDate && data.master_mod_date) {
+            els.masterModDate.textContent = `Updated: ${data.master_mod_date}`;
+        }
+        if (els.invoiceModDate && data.invoice_mod_date) {
+            els.invoiceModDate.textContent = `Updated: ${data.invoice_mod_date}`;
+        }
+        if (els.customerModDate && data.customer_mod_date) {
+            els.customerModDate.textContent = `Updated: ${data.customer_mod_date}`;
+        }
+    } catch (err) {
+        console.error("Error fetching stats:", err);
+    }
+}
+
+async function fetchFilters() {
+    try {
+        // Fetch brands
+        const resBrands = await fetch('/api/brands');
+        state.brands = await resBrands.json();
+
+        state.brands.forEach(brand => {
+            const option = document.createElement('option');
+            option.value = brand;
+            option.textContent = brand;
+            els.brandFilter.appendChild(option);
+        });
+
+        // Fetch suffixes
+        const resSuffixes = await fetch('/api/suffixes');
+        state.suffixes = await resSuffixes.json();
+
+        state.suffixes.forEach(suffix => {
+            const option = document.createElement('option');
+            option.value = suffix.id;
+            // Short labels for dropdown
+            const label = suffix.id + ' - ' + suffix.label.split(' ')[0];
+            option.textContent = label;
+            els.suffixFilter.appendChild(option);
+        });
+    } catch (err) {
+        console.error("Error fetching filters:", err);
+    }
+}
+
+async function fetchProducts() {
+    // Show loading state, span across 11 cols if activeDays, otherwise 10
+    const colspan = state.activeDays ? '11' : '10';
+    els.productList.innerHTML = `
+        <tr>
+            <td colspan="${colspan}" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">Loading inventory data...</p>
+            </td>
+        </tr>
+    `;
+
+    // Manage Amount Sold column header visibility
+    if (state.activeDays) {
+        els.colAmountSold.classList.remove('hidden');
+        if (state.activeDays === '1') {
+            els.colAmountSold.textContent = 'Amount Sold (Last 1 Day)';
+        } else {
+            els.colAmountSold.textContent = `Amount Sold (Last ${state.activeDays} Days)`;
+        }
+    } else {
+        els.colAmountSold.classList.add('hidden');
+    }
+
+    // Build URL params
+    const params = new URLSearchParams({
+        search: state.search,
+        brand: state.brand,
+        suffix: state.suffix,
+        active_days: state.activeDays,
+        sort: state.sort,
+        dir: state.sortDir,
+        page: state.page,
+        per_page: state.perPage
+    });
+
+    try {
+        const res = await fetch(`/api/products?${params}`);
+        const data = await res.json();
+
+        state.products = data.items;
+        state.totalItems = data.total;
+        state.totalPages = data.total_pages;
+        state.page = data.page;
+
+        renderProducts();
+        updatePaginationInfo();
+        renderPaginationControls();
+    } catch (err) {
+        console.error("Error fetching products:", err);
+        const colspan = state.activeDays ? '11' : '10';
+        els.productList.innerHTML = `
+            <tr>
+                <td colspan="${colspan}" class="text-center py-8 text-error">
+                    Failed to load data. Please make sure the server is running.
+                </td>
+            </tr>
+        `;
+    }
+}
+
+async function fetchProductDetail(sku) {
+    try {
+        const res = await fetch(`/api/products/${encodeURIComponent(sku)}/detail`);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch (err) {
+        console.error("Error fetching product detail:", err);
+        return null;
+    }
+}
+
+async function fetchProductImages(sku) {
+    try {
+        const res = await fetch(`/api/products/${sku}/images`);
+        return await res.json();
+    } catch (err) {
+        console.error("Error fetching product images:", err);
+        return [];
+    }
+}
+
+// Rendering
+function renderProducts() {
+    const colspan = state.activeDays ? '11' : '10';
+    if (state.products.length === 0) {
+        els.productList.innerHTML = `
+            <tr>
+                <td colspan="${colspan}" class="text-center py-8 text-muted">
+                    No products found matching your criteria.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    els.productList.innerHTML = '';
+
+    state.products.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.onclick = () => openModal(p, idx);
+
+        // Highlight row if it was detected as new/changed after sync
+        if (state.syncNewProductSkus.has(p.sku)) {
+            tr.classList.add('sync-new-row');
+        }
+
+        const suffixClass = `type-${p.suffix.toLowerCase()}`;
+
+        // Thumbnail content
+        let thumbContent = p.thumbnail
+            ? `<img src="/images/${p.thumbnail}" alt="${p.part_code} thumbnail" loading="lazy">`
+            : `<svg viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none" class="thumb-placeholder"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`;
+
+        // Quantity styling (use on_hand_qty from CSV, fallback to qty)
+        const displayQty = p.on_hand_qty !== undefined ? p.on_hand_qty : p.qty;
+        const qtyClass = displayQty <= 5 ? 'qty-low' : '';
+
+        // Last sold date HTML — uses server-computed days_ago to avoid client clock issues
+        let lastSoldHTML = `<span class="text-muted" style="font-size: 0.9em;">-</span>`;
+        if (p.last_sold_date) {
+            const beDate = formatBuddhistDate(p.last_sold_date);
+            if (p.days_ago !== null && p.days_ago !== undefined) {
+                if (p.days_ago < 0) {
+                    // Future date
+                    const futureDays = Math.abs(p.days_ago);
+                    const diffText = `${futureDays} วันข้างหน้า`;
+                    lastSoldHTML = `
+                        <span class="text-muted" style="font-size: 0.9em;">${beDate}</span><br>
+                        <span style="font-weight: 700; font-size: 1.1em; color: #f59e0b;">(${diffText})</span>
+                    `;
+                } else {
+                    const diffText = p.days_ago === 0 ? 'วันนี้' : `${p.days_ago} วันก่อน`;
+                    // Show detection time for items sold today
+                    const detTime = (p.days_ago === 0 && state.syncDetectionTimes.has(p.sku))
+                        ? `<br><span class="sync-detection-time">ตรวจพบเมื่อ ${state.syncDetectionTimes.get(p.sku)}</span>`
+                        : '';
+                    lastSoldHTML = `
+                        <span class="text-muted" style="font-size: 0.9em;">${beDate}</span><br>
+                        <span style="font-weight: 700; font-size: 1.1em; color: var(--text-primary);">(${diffText})</span>${detTime}
+                    `;
+                }
+            } else {
+                // Fallback: just show the date without days_ago
+                lastSoldHTML = `<span class="text-muted" style="font-size: 0.9em;">${beDate}</span>`;
+            }
+        }
+
+        // Flagged styling indicator
+        const flagIndicator = p.flag_type
+            ? `<div title="Flagged: ${p.flag_type}" style="position:absolute; top:4px; right:4px; font-size:14px;">🚩</div>`
+            : '';
+
+        tr.innerHTML = `
+            <td>
+                <div class="thumb-cell">
+                    ${thumbContent}
+                    ${flagIndicator}
+                    ${p.image_count > 1 ? `<span style="position:absolute; background:rgba(0,0,0,0.7); color:white; font-size:10px; padding:2px 4px; border-radius:4px; right:4px; bottom:4px;">+${p.image_count - 1}</span>` : ''}
+                </div>
+            </td>
+            <td>
+                <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">ใหม่</span>' : ''}</div>
+            </td>
+            <td>
+                <div class="suffix-indicator" title="${p.suffix_label}">
+                    <div class="suffix-dot ${suffixClass}"></div>
+                    <span>${p.suffix}</span>
+                </div>
+            </td>
+            <td>
+                ${p.brand ? `<span class="brand-badge">${p.brand}</span>` : '<span class="text-muted">-</span>'}
+            </td>
+            <td>
+                <div class="desc-cell">
+                    <div class="desc-eng" title="${p.name_eng}">${p.name_eng || '-'}</div>
+                    <div class="desc-thai" title="${p.name_thai}">${p.name_thai || '-'}</div>
+                </div>
+            </td>
+            <td>
+                <span class="text-muted" title="${p.size || ''}">${p.size || '-'}</span>
+            </td>
+            <td>
+                <span class="brand-badge" style="background: rgba(139, 92, 246, 0.2); color: #c4b5fd;">${p.locations || '-'}</span>
+            </td>
+            <td class="text-right">
+                <span class="qty-badge ${qtyClass}">${formatNumber(displayQty)}</span>
+            </td>
+            <td class="text-right">
+                <span class="price-val">${p.sale_price ? formatPrice(p.sale_price) : '-'}</span>
+            </td>
+            <td class="text-right">
+                ${lastSoldHTML}
+            </td>
+            ${state.activeDays ? `<td class="text-right"><span class="qty-badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">${formatNumber(p.amount_sold || 0)}</span></td>` : ''}
+        `;
+
+        // Give absolute positioning context to the thumb cell for the image count badge
+        tr.querySelector('.thumb-cell').style.position = 'relative';
+
+        els.productList.appendChild(tr);
+    });
+}
+
+function updatePaginationInfo() {
+    els.resultsCount.textContent = formatNumber(state.totalItems);
+    els.totalResults.textContent = formatNumber(state.totalItems);
+
+    if (state.totalItems === 0) {
+        els.pageStart.textContent = '0';
+        els.pageEnd.textContent = '0';
+    } else {
+        const start = ((state.page - 1) * state.perPage) + 1;
+        const end = Math.min(state.page * state.perPage, state.totalItems);
+        els.pageStart.textContent = formatNumber(start);
+        els.pageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderPaginationControls() {
+    // Prev/Next buttons
+    els.btnPrev.disabled = state.page <= 1;
+    els.btnNext.disabled = state.page >= state.totalPages;
+
+    // Page numbers
+    els.pageNumbers.innerHTML = '';
+
+    if (state.totalPages <= 1) return;
+
+    // Logic to show a max of 5 page buttons: first, last, current, current-1, current+1
+    // Simplification for the example: just show 5 centered around current
+    let startPage = Math.max(1, state.page - 2);
+    let endPage = Math.min(state.totalPages, startPage + 4);
+
+    // Adjust start if we're near the end
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    if (startPage > 1) {
+        addPageButton(1);
+        if (startPage > 2) addEllipsis(els.pageNumbers);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        addPageButton(i);
+    }
+
+    if (endPage < state.totalPages) {
+        if (endPage < state.totalPages - 1) addEllipsis(els.pageNumbers);
+        addPageButton(state.totalPages);
+    }
+}
+
+function addPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.page ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.page) {
+        btn.onclick = () => {
+            state.page = pageNum;
+            fetchProducts();
+        };
+    }
+    els.pageNumbers.appendChild(btn);
+}
+
+function addEllipsis(containerElement) {
+    const span = document.createElement('span');
+    span.style.alignSelf = 'center';
+    span.style.color = 'var(--text-tertiary)';
+    span.textContent = '...';
+    containerElement.appendChild(span);
+}
+
+// Tabs – public entry point (pushes history)
+function switchTab(tabName) {
+    // When switching tab from a detail view, clear detail state
+    if (tabName === 'customer') {
+        state.customerDetailCode = null;
+    }
+    if (tabName === 'invoice') {
+        state.invoiceDetailNumber = null;
+    }
+    if (!_handlingPopstate) navPush(tabName);
+    switchTabInternal(tabName);
+}
+
+// Internal tab switch (no history push – used by the popstate router)
+function switchTabInternal(tabName) {
+    state.currentTab = tabName;
+
+    // Remove active/hidden from all
+    els.tabBtnProducts.classList.remove('active');
+    els.tabBtnMoves.classList.remove('active');
+    els.tabBtnFlags.classList.remove('active');
+    if (els.tabBtnCustomer) els.tabBtnCustomer.classList.remove('active');
+    if (els.tabBtnInvoice) els.tabBtnInvoice.classList.remove('active');
+
+    els.viewProducts.classList.add('hidden');
+    els.viewMoves.classList.add('hidden');
+    els.viewFlags.classList.add('hidden');
+    if (els.viewCustomer) els.viewCustomer.classList.add('hidden');
+    if (els.viewInvoice) els.viewInvoice.classList.add('hidden');
+
+    if (tabName === 'products') {
+        els.tabBtnProducts.classList.add('active');
+        els.viewProducts.classList.remove('hidden');
+    } else if (tabName === 'moves') {
+        els.tabBtnMoves.classList.add('active');
+        els.viewMoves.classList.remove('hidden');
+
+        if (state.moves.length === 0) {
+            fetchMoves();
+        }
+    } else if (tabName === 'flags') {
+        els.tabBtnFlags.classList.add('active');
+        els.viewFlags.classList.remove('hidden');
+
+        if (state.flags.length === 0) {
+            fetchFlags();
+        }
+    } else if (tabName === 'customer') {
+        if (els.tabBtnCustomer) els.tabBtnCustomer.classList.add('active');
+        if (els.viewCustomer) els.viewCustomer.classList.remove('hidden');
+
+        // If in detail mode, keep it; otherwise load list
+        if (!state.customerDetailCode) {
+            showCustomerListMode();
+            if (state.customers.length === 0) fetchCustomers();
+        }
+    } else if (tabName === 'invoice') {
+        if (els.tabBtnInvoice) els.tabBtnInvoice.classList.add('active');
+        if (els.viewInvoice) {
+            els.viewInvoice.classList.remove('hidden');
+            // Show "under maintenance" message
+            if (els.invoiceListPanel) els.invoiceListPanel.classList.add('hidden');
+            if (els.invoiceDetailPanel) els.invoiceDetailPanel.classList.add('hidden');
+            // Insert maintenance banner if not already present
+            let banner = els.viewInvoice.querySelector('.invoice-maintenance-banner');
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.className = 'invoice-maintenance-banner card glass';
+                banner.style.cssText = 'text-align: center; padding: 4rem 2rem; margin-top: 1rem;';
+                banner.innerHTML = `
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🚧</div>
+                    <h2 style="margin: 0 0 0.5rem; color: var(--text-primary); font-size: 1.3rem;">กำลังปรับปรุง</h2>
+                    <p style="color: var(--text-secondary); font-size: 0.95rem; margin: 0;">ระบบใบกำกับภาษีอยู่ระหว่างปรับปรุง กรุณากลับมาใหม่ภายหลัง</p>
+                `;
+                els.viewInvoice.appendChild(banner);
+            }
+            banner.classList.remove('hidden');
+        }
+    }
+}
+
+// Moves specific code
+async function fetchMoves() {
+    els.movesList.innerHTML = `
+        <tr>
+            <td colspan="9" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">Loading stock moves...</p>
+            </td>
+        </tr>
+    `;
+
+    const params = new URLSearchParams({
+        search: state.movesSearch,
+        type: state.movesType,
+        sort: state.movesSort,
+        dir: state.movesSortDir,
+        page: state.movesPage,
+        per_page: state.movesPerPage
+    });
+
+    try {
+        const res = await fetch(`/api/moves?${params}`);
+        const data = await res.json();
+
+        state.moves = data.items;
+        state.movesTotalItems = data.total;
+        state.movesTotalPages = data.total_pages;
+        state.movesPage = data.page;
+
+        renderMoves();
+        updateMovesPaginationInfo();
+        renderMovesPaginationControls();
+    } catch (err) {
+        console.error("Error fetching moves:", err);
+        els.movesList.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center py-8 text-error">Failed to load stock moves.</td>
+            </tr>
+        `;
+    }
+}
+
+function renderMoves() {
+    if (state.moves.length === 0) {
+        els.movesList.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">No stock moves found.</td></tr>`;
+        return;
+    }
+
+    els.movesList.innerHTML = '';
+    state.moves.forEach((m, idx) => {
+        const tr = document.createElement('tr');
+
+        // Highlight row if detected as new after sync
+        const moveKey = `${m.part_code}|${m.date}|${m.doc_ref}|${m.qty_in}|${m.qty_out}`;
+        if (state.syncNewMoveKeys.has(moveKey)) {
+            tr.classList.add('sync-new-row');
+        }
+
+        // Setup row click to open modal with move data normalized to product shape
+        tr.onclick = () => {
+            openModal({
+                sku: m.sku, part_code: m.part_code, name_eng: m.name_eng, name_thai: m.name_thai,
+                brand: m.brand, suffix: m.sku_type || '-', qty: m.running_balance, sale_price: m.unit_price, thumbnail: m.thumbnail
+            }, idx);
+        };
+
+        const formattedDate = formatBuddhistDate(m.date);
+
+        let outHtml = m.qty_out > 0 ? `<span class="change-out">${formatNumber(m.qty_out)}</span>` : '<span class="text-muted">0</span>';
+        let inHtml = m.qty_in > 0 ? `<span class="change-in">+${formatNumber(m.qty_in)}</span>` : '<span class="text-muted">0</span>';
+
+        tr.innerHTML = `
+            <td style="white-space:nowrap;">${formattedDate}</td>
+            <td>${m.doc_ref || '-'}</td>
+            <td>${getCategoryThai(m.category_name)}</td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${m.part_code}${state.syncNewMoveKeys.has(moveKey) ? '<span class="sync-badge">ใหม่</span>' : ''}</div></td>
+            <td>
+                <div class="desc-cell">
+                    <div class="desc-eng">${m.name_eng || '-'}</div>
+                    <div class="desc-thai">${m.name_thai || '-'}</div>
+                </div>
+            </td>
+            <td class="text-right">${inHtml}</td>
+            <td class="text-right">${outHtml}</td>
+            <td class="text-right">${m.unit_price ? formatPrice(m.unit_price) : '-'}</td>
+            <td class="text-right"><strong>${formatNumber(m.running_balance)}</strong></td>
+        `;
+
+        els.movesList.appendChild(tr);
+    });
+}
+
+function updateMovesPaginationInfo() {
+    els.movesResultsCount.textContent = formatNumber(state.movesTotalItems);
+    els.movesTotalResults.textContent = formatNumber(state.movesTotalItems);
+
+    if (state.movesTotalItems === 0) {
+        els.movesPageStart.textContent = '0';
+        els.movesPageEnd.textContent = '0';
+    } else {
+        const start = ((state.movesPage - 1) * state.movesPerPage) + 1;
+        const end = Math.min(state.movesPage * state.movesPerPage, state.movesTotalItems);
+        els.movesPageStart.textContent = formatNumber(start);
+        els.movesPageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderMovesPaginationControls() {
+    els.movesBtnPrev.disabled = state.movesPage <= 1;
+    els.movesBtnNext.disabled = state.movesPage >= state.movesTotalPages;
+
+    els.movesPageNumbers.innerHTML = '';
+    if (state.movesTotalPages <= 1) return;
+
+    let startPage = Math.max(1, state.movesPage - 2);
+    let endPage = Math.min(state.movesTotalPages, startPage + 4);
+
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    if (startPage > 1) {
+        addMovesPageButton(1);
+        if (startPage > 2) addEllipsis(els.movesPageNumbers);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        addMovesPageButton(i);
+    }
+
+    if (endPage < state.movesTotalPages) {
+        if (endPage < state.movesTotalPages - 1) addEllipsis(els.movesPageNumbers);
+        addMovesPageButton(state.movesTotalPages);
+    }
+}
+
+function addMovesPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.movesPage ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.movesPage) {
+        btn.onclick = () => {
+            state.movesPage = pageNum;
+            fetchMoves();
+        };
+    }
+    els.movesPageNumbers.appendChild(btn);
+}
+
+// Modal handling
+function openModal(product, sourceIndex) {
+    // Build browsable list from the current tab (make a COPY so we can extend it)
+    if (state.currentTab === 'products') {
+        state.modalList = [...state.products];
+        state.modalTotalItems = state.totalItems;
+    } else if (state.currentTab === 'moves') {
+        state.modalList = state.moves.map(m => ({
+            sku: m.sku, part_code: m.part_code, name_eng: m.name_eng, name_thai: m.name_thai,
+            brand: m.brand, suffix: m.suffix || '-', qty: m.qty, sale_price: m.price, thumbnail: m.thumbnail
+        }));
+        state.modalTotalItems = state.movesTotalItems;
+    } else if (state.currentTab === 'flags') {
+        state.modalList = [...state.flags];
+        state.modalTotalItems = state.flagsTotalItems;
+    } else {
+        state.modalList = [];
+        state.modalTotalItems = 0;
+    }
+    state.modalIndex = typeof sourceIndex === 'number' ? sourceIndex : -1;
+    // Track how many pages are already loaded into modalList
+    state.modalPagesLoaded = state.currentTab === 'products' ? state.page
+        : state.currentTab === 'moves' ? state.movesPage
+            : state.currentTab === 'flags' ? state.flagsPage : 1;
+    state.modalLoading = false;
+
+    if (!_handlingPopstate) navPush('product/' + encodeURIComponent(product.sku));
+    openModalInternal(product);
+    updateModalNav();
+}
+
+// Highlight search term in text (returns HTML string)
+function highlightSearch(text, searchTerm) {
+    if (!searchTerm || !text) return escapeHtml(text || '');
+    const escaped = escapeHtml(text);
+    const escapedTerm = escapeHtml(searchTerm);
+    const regex = new RegExp(`(${escapeRegex(escapedTerm)})`, 'gi');
+    return escaped.replace(regex, '<mark class="search-hl">$1</mark>');
+}
+
+async function openModalInternal(product) {
+    // Populate details
+    els.modalSuffixLabel.textContent = product.suffix || '-'; // Display the short code like G, C, R, L
+    els.modalSuffixLabel.className = `sku-badge type-${(product.suffix || '').toLowerCase()}`;
+    els.modalSuffixLabel.style.color = 'white'; // Override text color to white for contrast
+
+    // Get the active search term for highlighting
+    const searchTerm = state.search || '';
+
+    els.modalPartCode.innerHTML = highlightSearch(product.part_code || product.sku, searchTerm);
+    els.modalNameEng.innerHTML = highlightSearch(product.name_eng || 'No English Description', searchTerm);
+    els.modalNameThai.innerHTML = highlightSearch(product.name_thai || 'No Thai Description', searchTerm);
+    els.modalBrand.textContent = product.brand || '-';
+
+    // Restricting missed properties
+    els.modalSize.textContent = product.size || '-';
+    // Use on_hand_qty from CSV, fallback to qty
+    const displayQty = product.on_hand_qty !== undefined ? product.on_hand_qty : product.qty;
+    els.modalQty.textContent = formatNumber(displayQty);
+    els.modalPrice.textContent = product.sale_price ? formatPrice(product.sale_price) : '-';
+
+    els.modalQty.className = `value qty-value ${displayQty <= 5 ? 'qty-low' : ''}`;
+
+    // Manage Report button state
+    state.currentModalSku = product.sku;
+    els.btnReportIssue.classList.remove('hidden');
+    els.reportDialog.classList.add('hidden');
+    els.reportNote.value = '';
+    els.flagTypeRadios.forEach(r => r.checked = false);
+
+    // Initial image load
+    if (product.thumbnail) {
+        els.modalMainImg.src = `/images/${product.thumbnail}`;
+        els.modalMainImg.style.display = 'block';
+        els.mainImageTrashBtn.classList.remove('hidden');
+    } else {
+        els.modalMainImg.style.display = 'none';
+        els.modalMainImg.src = '';
+        els.mainImageTrashBtn.classList.add('hidden');
+    }
+    els.modalThumbnails.innerHTML = '';
+
+    // Show modal
+    els.modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; // Prevent background scrolling
+
+    // Fetch and populate image gallery if there might be multiple
+    if (product.thumbnail) {
+        // Show loading state for thumbs if image count > 1
+        if (product.image_count > 1) {
+            els.modalThumbnails.innerHTML = `<div class="text-muted" style="font-size:0.8rem">Loading gallery...</div>`;
+        } else {
+            // Just one image anyway
+            insertThumbnail(product.thumbnail, true);
+        }
+
+        // Fetch all images
+        const images = await fetchProductImages(product.sku);
+        if (images && images.length > 0) {
+            els.modalThumbnails.innerHTML = ''; // Clear loading
+
+            images.forEach((imgPath, idx) => {
+                insertThumbnail(imgPath, idx === 0);
+            });
+        }
+
+        // Add hidden images toggle below thumbnails
+        insertHiddenToggle();
+    }
+
+    // Fetch and render stock history
+    els.modalHistory.innerHTML = '<p class="text-muted">Loading history...</p>';
+    fetchAndRenderHistory(product.sku);
+
+    // Fetch and render archived history
+    if (els.modalArchivedHistory) {
+        els.modalArchivedHistory.innerHTML = '<p class="text-muted">กำลังโหลดประวัติเคลื่อนไหว...</p>';
+        fetchAndRenderArchivedHistory(product.sku);
+    }
+
+    // Fetch and render possible titles
+    els.modalPossibleTitles.innerHTML = '<p class="text-muted" style="font-size:0.9rem;">Loading titles...</p>';
+    fetchAndRenderTitles(product.sku);
+}
+
+function insertThumbnail(imgPath, isActive) {
+    // If path doesn't start with /images/ (from initial thumbnail prop), prepend it
+    const src = imgPath.startsWith('/images/') ? imgPath : `/images/${imgPath}`;
+    // Extract just the filename from the path for the hide API
+    const filename = imgPath.split('/').pop();
+
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = `gallery-thumb ${isActive ? 'active' : ''}`;
+
+    img.onclick = () => {
+        // Update main image
+        els.modalMainImg.src = src;
+
+        // Track which file is currently shown (for the main-image trash button)
+        els.modalMainImg.dataset.filename = filename;
+
+        // Update active state
+        document.querySelectorAll('.gallery-thumb').forEach(el => el.classList.remove('active'));
+        img.classList.add('active');
+    };
+
+    // If this is the active (first) thumbnail, set the filename on the main image
+    if (isActive) {
+        els.modalMainImg.dataset.filename = filename;
+    }
+
+    els.modalThumbnails.appendChild(img);
+}
+
+async function hideImage(filename) {
+    if (!state.currentModalSku) return;
+    if (!confirm(`ซ่อนรูปภาพ "${filename}" ?\nHide this image?`)) return;
+
+    try {
+        const res = await fetch(`/api/products/${state.currentModalSku}/images/hide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename })
+        });
+        const data = await res.json();
+        if (data.success) {
+            refreshGallery();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    } catch (err) {
+        console.error('Error hiding image:', err);
+        alert('Failed to hide image');
+    }
+}
+
+async function unhideImage(hiddenName) {
+    if (!state.currentModalSku) return;
+
+    try {
+        const res = await fetch(`/api/products/${state.currentModalSku}/images/unhide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: hiddenName })
+        });
+        const data = await res.json();
+        if (data.success) {
+            refreshGallery();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    } catch (err) {
+        console.error('Error unhiding image:', err);
+        alert('Failed to restore image');
+    }
+}
+
+async function refreshGallery() {
+    if (!state.currentModalSku) return;
+
+    const images = await fetchProductImages(state.currentModalSku);
+    els.modalThumbnails.innerHTML = '';
+
+    if (images && images.length > 0) {
+        els.modalMainImg.src = images[0].startsWith('/images/') ? images[0] : `/images/${images[0]}`;
+        els.modalMainImg.style.display = 'block';
+        els.mainImageTrashBtn.classList.remove('hidden');
+        images.forEach((imgPath, idx) => {
+            insertThumbnail(imgPath, idx === 0);
+        });
+    } else {
+        els.modalMainImg.style.display = 'none';
+        els.modalMainImg.src = '';
+        els.mainImageTrashBtn.classList.add('hidden');
+    }
+
+    // Re-insert hidden toggle
+    insertHiddenToggle();
+}
+
+async function loadHiddenImages() {
+    if (!state.currentModalSku) return;
+
+    try {
+        const res = await fetch(`/api/products/${state.currentModalSku}/images/hidden`);
+        const hidden = await res.json();
+
+        // Remove any existing hidden images from display
+        document.querySelectorAll('.gallery-thumb-wrapper.hidden-wrapper').forEach(el => el.remove());
+
+        if (!hidden || hidden.length === 0) return;
+
+        hidden.forEach(item => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gallery-thumb-wrapper hidden-wrapper';
+
+            const img = document.createElement('img');
+            img.src = item.preview;
+            img.className = 'gallery-thumb hidden-img';
+            img.title = `Hidden: ${item.original_name}`;
+
+            img.onerror = () => {
+                // hidden file can't be served directly, use a placeholder style
+                img.style.background = 'repeating-linear-gradient(45deg, rgba(255,255,255,0.05), rgba(255,255,255,0.05) 4px, transparent 4px, transparent 8px)';
+                img.removeAttribute('src');
+            };
+
+            // Restore button
+            const restoreBtn = document.createElement('button');
+            restoreBtn.className = 'gallery-restore-btn';
+            restoreBtn.title = 'Restore this image';
+            restoreBtn.innerHTML = '↩';
+            restoreBtn.onclick = (e) => {
+                e.stopPropagation();
+                unhideImage(item.hidden_name);
+            };
+
+            wrapper.appendChild(img);
+            wrapper.appendChild(restoreBtn);
+            els.modalThumbnails.appendChild(wrapper);
+        });
+    } catch (err) {
+        console.error('Error loading hidden images:', err);
+    }
+}
+
+function insertHiddenToggle() {
+    // Remove existing toggle
+    const existing = els.modalThumbnails.parentElement.querySelector('.gallery-hidden-toggle');
+    if (existing) existing.remove();
+
+    const toggle = document.createElement('button');
+    toggle.className = 'gallery-hidden-toggle';
+    toggle.innerHTML = '👁 Show hidden';
+    let showing = false;
+
+    toggle.onclick = async () => {
+        showing = !showing;
+        if (showing) {
+            toggle.innerHTML = '👁 Hide hidden';
+            await loadHiddenImages();
+        } else {
+            toggle.innerHTML = '👁 Show hidden';
+            document.querySelectorAll('.gallery-thumb-wrapper.hidden-wrapper').forEach(el => el.remove());
+        }
+    };
+
+    // Insert after thumbnail strip
+    els.modalThumbnails.parentElement.appendChild(toggle);
+}
+
+function closeModal() {
+    if (location.hash.startsWith('#product/')) {
+        history.back(); // Triggers popstate → handleNavigation → closeModalInternal
+    } else {
+        closeModalInternal();
+    }
+}
+
+function closeModalInternal() {
+    els.modal.classList.add('hidden');
+    document.body.style.overflow = 'auto'; // Restore background scrolling
+}
+
+// Modal navigation (prev/next product in list, with auto-loading across pages)
+async function navigateModal(direction) {
+    if (!state.modalList || state.modalList.length === 0 || state.modalIndex < 0) return;
+    if (state.modalLoading) return; // Prevent double-fetching
+
+    const newIndex = state.modalIndex + direction;
+
+    // Going past the end? Try to load the next page
+    if (newIndex >= state.modalList.length) {
+        const loaded = await loadMoreModalItems();
+        if (!loaded || newIndex >= state.modalList.length) return; // No more items
+    }
+
+    if (newIndex < 0) return; // Can't go before the first item
+
+    state.modalIndex = newIndex;
+    const product = state.modalList[newIndex];
+    openModalInternal(product);
+    updateModalNav();
+}
+
+async function loadMoreModalItems() {
+    const tab = state.currentTab;
+    const nextPage = state.modalPagesLoaded + 1;
+    const totalPages = tab === 'products' ? state.totalPages
+        : tab === 'moves' ? state.movesTotalPages
+            : tab === 'flags' ? state.flagsTotalPages : 0;
+
+    if (nextPage > totalPages) return false;
+
+    state.modalLoading = true;
+    els.modalNavIndicator.textContent = '...';
+
+    try {
+        let url, items;
+
+        if (tab === 'products') {
+            const params = new URLSearchParams({
+                search: state.search, brand: state.brand, suffix: state.suffix,
+                active_days: state.activeDays, sort: state.sort, dir: state.sortDir,
+                page: nextPage, per_page: state.perPage
+            });
+            const res = await fetch(`/api/products?${params}`);
+            const data = await res.json();
+            items = data.items || [];
+        } else if (tab === 'moves') {
+            const params = new URLSearchParams({
+                search: state.movesSearch, type: state.movesType,
+                sort: state.movesSort, dir: state.movesSortDir,
+                page: nextPage, per_page: state.movesPerPage
+            });
+            const res = await fetch(`/api/moves?${params}`);
+            const data = await res.json();
+            items = (data.items || []).map(m => ({
+                sku: m.sku, part_code: m.part_code, name_eng: m.name_eng, name_thai: m.name_thai,
+                brand: m.brand, suffix: m.suffix || '-', qty: m.qty, sale_price: m.price, thumbnail: m.thumbnail
+            }));
+        } else if (tab === 'flags') {
+            const params = new URLSearchParams({
+                search: state.flagsSearch, sort: state.flagsSort, dir: state.flagsSortDir,
+                page: nextPage, per_page: 50
+            });
+            const res = await fetch(`/api/flags?${params}`);
+            const data = await res.json();
+            items = data.items || [];
+        }
+
+        if (items && items.length > 0) {
+            state.modalList.push(...items);
+            state.modalPagesLoaded = nextPage;
+            state.modalLoading = false;
+            return true;
+        }
+    } catch (err) {
+        console.error('Error loading more modal items:', err);
+    }
+
+    state.modalLoading = false;
+    return false;
+}
+
+function updateModalNav() {
+    const total = state.modalTotalItems || state.modalList.length;
+    if (!state.modalList || total <= 1 || state.modalIndex < 0) {
+        els.modalNavControls.classList.add('hidden');
+        return;
+    }
+
+    els.modalNavControls.classList.remove('hidden');
+    els.modalNavIndicator.textContent = `${formatNumber(state.modalIndex + 1)} / ${formatNumber(total)}`;
+    els.modalPrevBtn.disabled = state.modalIndex <= 0;
+    els.modalNextBtn.disabled = state.modalIndex >= total - 1;
+}
+
+// Possible Titles
+let cachedEngineList = null;
+let cachedForkliftBrands = null;
+
+async function getEngineList() {
+    if (cachedEngineList) return cachedEngineList;
+    try {
+        const res = await fetch('/api/engine-list');
+        cachedEngineList = await res.json();
+    } catch (e) {
+        cachedEngineList = [];
+    }
+    return cachedEngineList;
+}
+
+async function getForkliftBrands() {
+    if (cachedForkliftBrands) return cachedForkliftBrands;
+    try {
+        const res = await fetch('/api/forklift-brands');
+        cachedForkliftBrands = await res.json();
+    } catch (e) {
+        cachedForkliftBrands = [];
+    }
+    return cachedForkliftBrands;
+}
+
+function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Highlight colors:
+// Engine models + "engine" word = amber/orange
+const HL_ENGINE = 'background:#f59e0b;color:#000;padding:0 2px;border-radius:3px;font-weight:600;';
+// FG/FD/FB chunks = teal/cyan
+const HL_FGFDFB = 'background:#06b6d4;color:#000;padding:0 2px;border-radius:3px;font-weight:600;';
+// Forklift brands = purple/violet
+const HL_BRAND = 'background:#a78bfa;color:#000;padding:0 2px;border-radius:3px;font-weight:600;';
+
+function highlightTitle(text, engineModels, forkliftBrands) {
+    let safe = escapeHtml(text);
+
+    // We need to apply highlights in a specific order using separate passes
+    // to assign different colors. We use placeholder tokens to avoid nested replacements.
+
+    // Pass 1: FG/FD/FB chunks (teal) - most specific word-level match first
+    const fgPattern = /(\b\S*(?:FG|FD|FB)\S*\b)/gi;
+    safe = safe.replace(fgPattern, `<mark style="${HL_FGFDFB}">$1</mark>`);
+
+    // Pass 2: Engine models + "engine" word (amber) - but skip already marked content
+    if (engineModels.length > 0) {
+        const sorted = [...engineModels].sort((a, b) => b.length - a.length);
+        const enginePatterns = ['\\bengine\\b'];
+        sorted.forEach(m => {
+            enginePatterns.push('\\b' + escapeRegex(m) + '\\b');
+        });
+        const engineRegex = new RegExp('(' + enginePatterns.join('|') + ')', 'gi');
+        // Only replace text NOT already inside a <mark> tag
+        safe = safe.replace(/(<mark[^>]*>.*?<\/mark>)|([^<]*)/gi, (fullMatch, marked, unmarked) => {
+            if (marked) return marked; // already highlighted, skip
+            if (!unmarked) return fullMatch;
+            return unmarked.replace(engineRegex, `<mark style="${HL_ENGINE}">$1</mark>`);
+        });
+    }
+
+    // Pass 3: Forklift brands (purple) - skip already marked content
+    if (forkliftBrands.length > 0) {
+        const sortedBrands = [...forkliftBrands].sort((a, b) => b.length - a.length);
+        const brandPatterns = sortedBrands.map(b => '\\b' + escapeRegex(b) + '\\b');
+        const brandRegex = new RegExp('(' + brandPatterns.join('|') + ')', 'gi');
+        safe = safe.replace(/(<mark[^>]*>.*?<\/mark>)|([^<]*)/gi, (fullMatch, marked, unmarked) => {
+            if (marked) return marked;
+            if (!unmarked) return fullMatch;
+            return unmarked.replace(brandRegex, `<mark style="${HL_BRAND}">$1</mark>`);
+        });
+    }
+
+    return safe;
+}
+
+async function fetchAndRenderTitles(sku) {
+    try {
+        const [response, engineModels, forkliftBrands] = await Promise.all([
+            fetch(`/api/products/${sku}/titles`),
+            getEngineList(),
+            getForkliftBrands()
+        ]);
+        if (!response.ok) throw new Error('Failed to fetch titles');
+
+        const titles = await response.json();
+
+        if (!titles || titles.length === 0) {
+            els.modalPossibleTitles.innerHTML = '<p class="text-muted" style="font-size:0.9rem;">No additional titles found in database.</p>';
+            return;
+        }
+
+        els.modalPossibleTitles.innerHTML = '';
+        titles.forEach(title => {
+            const tag = document.createElement('div');
+            tag.className = 'title-tag';
+            tag.style.cssText = `
+                background: rgba(255, 255, 255, 0.05);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: var(--text-secondary);
+                padding: 0.35rem 0.75rem;
+                border-radius: var(--radius-md);
+                font-size: 0.85rem;
+                line-height: 1.4;
+                max-width: 100%;
+                word-break: break-word;
+            `;
+            tag.innerHTML = highlightTitle(title, engineModels, forkliftBrands);
+            els.modalPossibleTitles.appendChild(tag);
+        });
+    } catch (err) {
+        console.error("Error fetching titles:", err);
+        els.modalPossibleTitles.innerHTML = '<p class="text-error" style="font-size:0.9rem;">Failed to load possible titles.</p>';
+    }
+}
+
+// Stock History
+async function fetchAndRenderHistory(sku) {
+    try {
+        const res = await fetch(`/api/products/${sku}/history`);
+        const history = await res.json();
+
+        if (!history || history.length === 0) {
+            els.modalHistory.innerHTML = '<p class="text-muted">No history data available for this product.</p>';
+            return;
+        }
+
+        let html = `<table class="history-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="text-right">Qty</th>
+                    <th class="text-right">Change</th>
+                    <th>Type</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        // Show oldest first
+        for (let i = 0; i < history.length; i++) {
+            const h = history[i];
+            let changeHtml = '-';
+            let labelHtml = '';
+
+            if (h.change !== null) {
+                if (h.change < 0) {
+                    changeHtml = `<span class="change-out">${h.change}</span>`;
+                    labelHtml = '<span class="label-out">Out</span>';
+                } else if (h.change > 0) {
+                    changeHtml = `<span class="change-in">+${h.change}</span>`;
+                    labelHtml = '<span class="label-in">In</span>';
+                } else {
+                    changeHtml = '<span class="text-muted">0</span>';
+                }
+            }
+
+            // Format date to Buddhist Era
+            const formattedDate = formatBuddhistDate(h.date);
+
+            html += `<tr>
+                <td>${formattedDate}</td>
+                <td class="text-right">${formatNumber(h.qty)}</td>
+                <td class="text-right">${changeHtml}</td>
+                <td>${labelHtml}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        els.modalHistory.innerHTML = html;
+    } catch (err) {
+        console.error('Error fetching history:', err);
+        els.modalHistory.innerHTML = '<p class="text-muted">Failed to load history.</p>';
+    }
+}
+
+async function fetchAndRenderArchivedHistory(sku) {
+    try {
+        const res = await fetch(`/api/products/${sku}/archived-history`);
+        const history = await res.json();
+
+        if (!history || history.length === 0) {
+            els.modalArchivedHistory.innerHTML = '<p class="text-muted">ไม่มีประวัติเคลื่อนไหว</p>';
+            if (archivedChartInstance) {
+                archivedChartInstance.destroy();
+                archivedChartInstance = null;
+            }
+            if (els.archivedHistoryChart) {
+                els.archivedHistoryChart.style.display = 'none';
+            }
+            // Hide sales-by-year when no data
+            if (els.modalSalesByYear) {
+                els.modalSalesByYear.classList.add('hidden');
+            }
+            return;
+        }
+
+        if (els.archivedHistoryChart) {
+            els.archivedHistoryChart.style.display = 'block';
+        }
+
+        let html = `<table class="history-table">
+            <thead>
+                <tr>
+                    <th>วันที่</th>
+                    <th>เอกสาร</th>
+                    <th>ประเภท</th>
+                    <th>จาก/ให้</th>
+                    <th class="text-right">ราคา/หน่วย</th>
+                    <th class="text-right">รับเข้า</th>
+                    <th class="text-right">จ่ายออก</th>
+                    <th class="text-right">ยอดคงเหลือ</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        for (let i = 0; i < history.length; i++) {
+            const h = history[i];
+
+            let outHtml = h.qty_out > 0 ? `<span class="change-out">${formatNumber(h.qty_out)}</span>` : '<span class="text-muted">0</span>';
+            let inHtml = h.qty_in > 0 ? `<span class="change-in">+${formatNumber(h.qty_in)}</span>` : '<span class="text-muted">0</span>';
+
+            // Format date tracking
+            let formattedDate = formatBuddhistDate(h.date);
+
+            html += `<tr>
+                <td style="white-space:nowrap;">${formattedDate}</td>
+                <td>${h.doc_ref || '-'}</td>
+                <td>${getCategoryThai(h.category_name)}</td>
+                <td>${h.from_to ? `<a href="#" class="from-to-link" data-customer-code="${escapeHtml(h.from_to)}" style="color: #60a5fa; text-decoration: none; cursor: pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${escapeHtml(h.from_to)}</a>` : '-'}</td>
+                <td class="text-right">${h.unit_price ? formatPrice(h.unit_price) : '-'}</td>
+                <td class="text-right">${inHtml}</td>
+                <td class="text-right">${outHtml}</td>
+                <td class="text-right"><strong>${formatNumber(h.running_balance)}</strong></td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        els.modalArchivedHistory.innerHTML = html;
+
+        // Attach click handlers for from/to customer links
+        els.modalArchivedHistory.querySelectorAll('.from-to-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const customerCode = link.dataset.customerCode;
+                if (customerCode) {
+                    // Close the modal visually, then navigate to customer detail.
+                    // The product modal hash stays in the history stack so
+                    // pressing browser-back returns the user to the modal.
+                    closeModalInternal();
+                    switchTabInternal('customer');
+                    openCustomerDetail(customerCode);
+                }
+            });
+        });
+
+        // ── Sales by Year aggregation ─────────────────────────────────────
+        if (els.modalSalesByYear && els.salesByYearGrid) {
+            const yearMap = {};
+            for (const h of history) {
+                if (!h.date || h.qty_out <= 0) continue;
+                const year = h.date.split('-')[0];
+                if (!year) continue;
+                yearMap[year] = (yearMap[year] || 0) + h.qty_out;
+            }
+
+            const years = Object.keys(yearMap).sort((a, b) => b - a); // newest first
+
+            if (years.length > 0) {
+                els.salesByYearGrid.innerHTML = years.map(y => {
+                    const ceYear = parseInt(y, 10);
+                    const beYear = ceYear > 2500 ? ceYear : ceYear + 543;
+                    return `<div class="year-card">
+                        <span class="year-label">${beYear}</span>
+                        <span class="year-qty">${formatNumber(yearMap[y])}</span>
+                    </div>`;
+                }).join('');
+                els.modalSalesByYear.classList.remove('hidden');
+            } else {
+                els.modalSalesByYear.classList.add('hidden');
+            }
+        }
+
+        // Render Chart.js
+        if (els.archivedHistoryChart) {
+            // Destroy existing chart if any
+            if (archivedChartInstance) {
+                archivedChartInstance.destroy();
+            }
+
+            // Prepare chart data (chronological order)
+            const labels = [];      // Short labels for display (DD/MM/YY)
+            const fullLabels = [];  // Full labels for tooltips (DD/MM/YYYY)
+            const dataPts = [];
+
+            // Helper: compact date for chart axis (2-digit year to save space)
+            function shortBuddhistDate(dateStr) {
+                const full = formatBuddhistDate(dateStr);
+                if (!full || full === '-') return full;
+                // DD/MM/YYYY → DD/MM/YY
+                const parts = full.split('/');
+                if (parts.length === 3 && parts[2].length === 4) {
+                    return `${parts[0]}/${parts[1]}/${parts[2].slice(-2)}`;
+                }
+                return full;
+            }
+
+            for (let i = 0; i < history.length; i++) {
+                const h = history[i];
+                if (h.date) {
+                    labels.push(shortBuddhistDate(h.date));
+                    fullLabels.push(formatBuddhistDate(h.date));
+                    dataPts.push(h.running_balance);
+                }
+            }
+
+            // Extend the graph to the current date
+            if (dataPts.length > 0) {
+                const today = new Date();
+                const shortToday = shortBuddhistDate(today);
+                const fullToday = formatBuddhistDate(today);
+
+                if (labels[labels.length - 1] !== shortToday) {
+                    labels.push(shortToday);
+                    fullLabels.push(fullToday);
+                    dataPts.push(dataPts[dataPts.length - 1]); // plateau to today
+                }
+            }
+
+            const ctx = els.archivedHistoryChart.getContext('2d');
+            archivedChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Running Balance',
+                        data: dataPts,
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        pointHoverRadius: 5,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    layout: {
+                        padding: {
+                            bottom: 4
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)'
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                font: {
+                                    size: 18
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.5)',
+                                maxTicksLimit: 8,
+                                autoSkip: true,
+                                autoSkipPadding: 12,
+                                maxRotation: 45,
+                                minRotation: 0,
+                                font: {
+                                    size: 20
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: 'rgba(0,0,0,0.85)',
+                            titleColor: '#fff',
+                            bodyColor: '#fff',
+                            borderColor: 'rgba(139, 92, 246, 0.3)',
+                            borderWidth: 1,
+                            padding: 15,
+                            cornerRadius: 8,
+                            titleFont: { size: 18, weight: '600' },
+                            bodyFont: { size: 18 },
+                            callbacks: {
+                                // Show full date (DD/MM/YYYY) in tooltip instead of the short label
+                                title: function(tooltipItems) {
+                                    const idx = tooltipItems[0].dataIndex;
+                                    return fullLabels[idx] || labels[idx];
+                                },
+                                label: function(context) {
+                                    return `ยอดคงเหลือ: ${formatNumber(context.parsed.y)}`;
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+    } catch (err) {
+        console.error('Error fetching archived history:', err);
+        els.modalArchivedHistory.innerHTML = '<p class="text-muted">โหลดประวัติเคลื่อนไหวไม่สำเร็จ</p>';
+    }
+}
+
+// ─── Flags Specific Code ──────────────────────────────────────────────────
+
+async function submitFlag() {
+    if (!state.currentModalSku) return;
+
+    let selectedType = null;
+    els.flagTypeRadios.forEach(r => {
+        if (r.checked) selectedType = r.value;
+    });
+
+    if (!selectedType) {
+        alert("Please select an issue type.");
+        return;
+    }
+
+    const note = els.reportNote.value.trim();
+
+    try {
+        els.btnSubmitReport.disabled = true;
+        els.btnSubmitReport.textContent = "Submitting...";
+
+        const res = await fetch(`/api/products/${state.currentModalSku}/flag`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ flag_type: selectedType, note: note })
+        });
+
+        if (res.ok) {
+            alert("Stock mismatch reported successfully.");
+            els.btnCancelReport.click(); // close the dialog
+
+            // Re-fetch products to update the indicators, and flags table if needed
+            fetchProducts();
+            if (state.flags.length > 0) fetchFlags();
+        } else {
+            const data = await res.json();
+            alert(`Error: ${data.error || 'Failed to submit'}`);
+        }
+    } catch (err) {
+        console.error(err);
+        alert("An error occurred while submitting.");
+    } finally {
+        els.btnSubmitReport.disabled = false;
+        els.btnSubmitReport.textContent = "Submit Flag";
+    }
+}
+
+async function fetchFlags() {
+    els.flagsList.innerHTML = `
+        <tr>
+            <td colspan="8" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">Loading flagged items...</p>
+            </td>
+        </tr>
+    `;
+
+    const params = new URLSearchParams({
+        search: state.flagsSearch,
+        sort: state.flagsSort,
+        dir: state.flagsSortDir,
+        page: state.flagsPage,
+        per_page: state.flagsPerPage
+    });
+
+    try {
+        const res = await fetch(`/api/flags?${params}`);
+        const data = await res.json();
+
+        state.flags = data.items;
+        state.flagsTotalItems = data.total;
+        state.flagsTotalPages = data.total_pages;
+        state.flagsPage = data.page;
+
+        renderFlags();
+        updateFlagsPaginationInfo();
+        renderFlagsPaginationControls();
+    } catch (err) {
+        console.error("Error fetching flags:", err);
+        els.flagsList.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-8 text-error">
+                    Failed to load flagged items.
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function renderFlags() {
+    if (state.flags.length === 0) {
+        els.flagsList.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-8 text-muted">
+                    No flagged items found.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    els.flagsList.innerHTML = '';
+
+    const typeMap = {
+        'out_of_stock': { label: 'สินค้าหมด (ระบบยังแสดง)', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.2)' },
+        'less_than': { label: 'สินค้าจริงน้อยกว่าระบบ', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.2)' },
+        'more_than': { label: 'สินค้าจริงมากกว่าระบบ', color: '#10b981', bg: 'rgba(16, 185, 129, 0.2)' }
+    };
+
+    state.flags.forEach((f, idx) => {
+        const tr = document.createElement('tr');
+        tr.onclick = (e) => { if (e.target.closest('.unflag-btn')) return; openModal(f, idx); };
+
+        const thumbContent = f.thumbnail
+            ? `<img src="/images/${f.thumbnail}" alt="${f.part_code} thumbnail" loading="lazy">`
+            : `<div class="thumb-placeholder"></div>`;
+
+        const typeInfo = typeMap[f.flag_type] || { label: f.flag_type, color: '#ccc', bg: '#333' };
+
+        // Parse date
+        let dateStr = formatBuddhistDate(f.flagged_at, true);
+
+        tr.innerHTML = `
+            <td><div class="thumb-cell">${thumbContent}</div></td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${f.part_code}</div></td>
+            <td>
+                <div class="desc-cell">
+                    <div class="desc-eng">${f.name_eng || '-'}</div>
+                    <div class="desc-thai">${f.name_thai || '-'}</div>
+                </div>
+            </td>
+            <td><span class="brand-badge">${f.brand || '-'}</span></td>
+            <td class="text-right">
+                <span class="qty-badge" style="background: rgba(255,255,255,0.1); color: #fff;">${formatNumber(f.system_qty)}</span>
+            </td>
+            <td>
+                <div><span class="badge" style="background: ${typeInfo.bg}; color: ${typeInfo.color}; border: 1px solid ${typeInfo.color}40;">${typeInfo.label}</span></div>
+                ${f.flag_note ? `<div style="margin-top: 4px; font-size: 0.85em; color: var(--text-secondary); max-width: 250px; white-space: normal; line-height: 1.3;">${escapeHtml(f.flag_note)}</div>` : ''}
+            </td>
+            <td><span class="text-muted" style="font-size: 0.9em;">${dateStr}</span></td>
+            <td class="text-right">
+                <button class="btn btn-outline unflag-btn" data-sku="${f.sku}" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; display: inline-block; vertical-align: text-bottom;">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    Resolve
+                </button>
+            </td>
+        `;
+
+        els.flagsList.appendChild(tr);
+    });
+
+    // Note: unflag (.unflag-btn) click handling is done via delegated listener
+    // on els.flagsList (set up once in setupEventListeners) so it survives re-renders.
+}
+
+function updateFlagsPaginationInfo() {
+    els.flagsResultsCount.textContent = formatNumber(state.flagsTotalItems);
+    els.flagsTotalResults.textContent = formatNumber(state.flagsTotalItems);
+
+    if (state.flagsTotalItems === 0) {
+        els.flagsPageStart.textContent = '0';
+        els.flagsPageEnd.textContent = '0';
+    } else {
+        const start = ((state.flagsPage - 1) * state.flagsPerPage) + 1;
+        const end = Math.min(state.flagsPage * state.flagsPerPage, state.flagsTotalItems);
+        els.flagsPageStart.textContent = formatNumber(start);
+        els.flagsPageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderFlagsPaginationControls() {
+    els.flagsBtnPrev.disabled = state.flagsPage <= 1;
+    els.flagsBtnNext.disabled = state.flagsPage >= state.flagsTotalPages;
+
+    els.flagsPageNumbers.innerHTML = '';
+    if (state.flagsTotalPages <= 1) return;
+
+    let startPage = Math.max(1, state.flagsPage - 2);
+    let endPage = Math.min(state.flagsTotalPages, startPage + 4);
+
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    if (startPage > 1) {
+        addFlagsPageButton(1);
+        if (startPage > 2) addEllipsis(els.flagsPageNumbers);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        addFlagsPageButton(i);
+    }
+
+    if (endPage < state.flagsTotalPages) {
+        if (endPage < state.flagsTotalPages - 1) addEllipsis(els.flagsPageNumbers);
+        addFlagsPageButton(state.flagsTotalPages);
+    }
+}
+
+function addFlagsPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.flagsPage ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.flagsPage) {
+        btn.onclick = () => {
+            state.flagsPage = pageNum;
+            fetchFlags();
+        };
+    }
+    els.flagsPageNumbers.appendChild(btn);
+}
+
+// Start app
+document.addEventListener('DOMContentLoaded', init);
+
+// ─── Customer List & Detail Code ────────────────────────────────────────────
+
+function showCustomerListMode() {
+    if (els.customerListPanel) els.customerListPanel.classList.remove('hidden');
+    if (els.customerDetailPanel) els.customerDetailPanel.classList.add('hidden');
+}
+
+function showCustomerDetailMode() {
+    if (els.customerListPanel) els.customerListPanel.classList.add('hidden');
+    if (els.customerDetailPanel) els.customerDetailPanel.classList.remove('hidden');
+}
+
+async function fetchCustomers() {
+    els.customerList.innerHTML = `
+        <tr>
+            <td colspan="6" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">กำลังโหลดรายชื่อลูกค้า...</p>
+            </td>
+        </tr>
+    `;
+    showCustomerListMode();
+
+    const params = new URLSearchParams({
+        search: state.customerSearch,
+        page: state.customersPage,
+        per_page: state.customersPerPage
+    });
+
+    try {
+        const res = await fetch(`/api/customers?${params}`);
+        const data = await res.json();
+
+        state.customers = data.items;
+        state.customersTotalItems = data.total;
+        state.customersTotalPages = data.total_pages;
+        state.customersPage = data.page;
+
+        renderCustomers();
+        updateCustomersPaginationInfo();
+        renderCustomersPaginationControls();
+    } catch (err) {
+        console.error("Error fetching customers:", err);
+        els.customerList.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-error">
+                    ไม่สามารถโหลดรายชื่อลูกค้าได้
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function renderCustomers() {
+    if (state.customers.length === 0) {
+        els.customerList.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center py-8 text-muted">
+                    ไม่พบลูกค้าที่ตรงกัน
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    els.customerList.innerHTML = '';
+
+    state.customers.forEach((c) => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.onclick = () => openCustomerDetail(c.customer_code);
+
+        const statusBadge = c.status === 'active'
+            ? '<span class="brand-badge" style="background: rgba(34,197,94,0.2); color: #4ade80;">Active</span>'
+            : '<span class="brand-badge" style="background: rgba(239,68,68,0.2); color: #f87171;">Inactive</span>';
+
+        const creditDays = c.credit_days ? parseFloat(c.credit_days) : 0;
+        const creditFormatted = creditDays > 0 ? `${creditDays}` : '<span class="text-muted">-</span>';
+
+        tr.innerHTML = `
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${c.customer_code}</div></td>
+            <td>${c.customer_name || '-'}</td>
+            <td>${c.phone || '<span class="text-muted">-</span>'}</td>
+            <td class="text-right">${creditFormatted}</td>
+            <td>${statusBadge}</td>
+            <td class="text-right"><span class="qty-badge">${formatNumber(c.txn_count || 0)}</span></td>
+        `;
+
+        els.customerList.appendChild(tr);
+    });
+}
+
+function updateCustomersPaginationInfo() {
+    els.customerResultsCount.textContent = formatNumber(state.customersTotalItems);
+    els.custTotalResults.textContent = formatNumber(state.customersTotalItems);
+
+    if (state.customersTotalItems === 0) {
+        els.custPageStart.textContent = '0';
+        els.custPageEnd.textContent = '0';
+    } else {
+        const start = ((state.customersPage - 1) * state.customersPerPage) + 1;
+        const end = Math.min(state.customersPage * state.customersPerPage, state.customersTotalItems);
+        els.custPageStart.textContent = formatNumber(start);
+        els.custPageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderCustomersPaginationControls() {
+    els.custBtnPrev.disabled = state.customersPage <= 1;
+    els.custBtnNext.disabled = state.customersPage >= state.customersTotalPages;
+
+    els.custPageNumbers.innerHTML = '';
+    if (state.customersTotalPages <= 1) return;
+
+    let startPage = Math.max(1, state.customersPage - 2);
+    let endPage = Math.min(state.customersTotalPages, startPage + 4);
+    if (endPage - startPage < 4) startPage = Math.max(1, endPage - 4);
+
+    if (startPage > 1) {
+        addCustPageButton(1);
+        if (startPage > 2) addEllipsis(els.custPageNumbers);
+    }
+    for (let i = startPage; i <= endPage; i++) addCustPageButton(i);
+    if (endPage < state.customersTotalPages) {
+        if (endPage < state.customersTotalPages - 1) addEllipsis(els.custPageNumbers);
+        addCustPageButton(state.customersTotalPages);
+    }
+}
+
+function addCustPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.customersPage ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.customersPage) {
+        btn.onclick = () => {
+            state.customersPage = pageNum;
+            fetchCustomers();
+        };
+    }
+    els.custPageNumbers.appendChild(btn);
+}
+
+async function openCustomerDetail(code) {
+    if (!_handlingPopstate) navPush('customer/' + encodeURIComponent(code));
+    openCustomerDetailInternal(code);
+}
+
+async function openCustomerDetailInternal(code) {
+    state.customerDetailCode = code;
+    showCustomerDetailMode();
+
+    // Show loading
+    els.customerInfoCard.innerHTML = '<div class="spinner" style="margin:1rem auto;"></div>';
+    els.custDetailTxnList.innerHTML = '<tr><td colspan="6" class="text-center py-8"><div class="spinner"></div></td></tr>';
+
+    try {
+        const res = await fetch(`/api/customers/${encodeURIComponent(code)}`);
+        if (!res.ok) throw new Error('Customer not found');
+        const data = await res.json();
+
+        const c = data.customer;
+        const txns = data.transactions;
+
+        // Render info card
+        const statusBadge = c.status === 'active'
+            ? '<span class="brand-badge" style="background: rgba(34,197,94,0.2); color: #4ade80;">Active</span>'
+            : '<span class="brand-badge" style="background: rgba(239,68,68,0.2); color: #f87171;">Inactive</span>';
+
+
+
+        els.customerInfoCard.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <div style="display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                        <h2 style="margin:0; font-family: monospace; font-size: 1.3rem; color: var(--accent);">${c.customer_code}</h2>
+                        ${statusBadge}
+                        ${c.branch_type_name ? `<span class="brand-badge">${c.branch_type_name}</span>` : ''}
+                    </div>
+                    <h3 style="margin: 0.25rem 0 0; font-weight: 500; color: var(--text-primary); font-size: 1.1rem;">${c.customer_name || '-'}</h3>
+                </div>
+            </div>
+
+            <div class="detail-grid" style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem;">
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">โทรศัพท์</span>
+                    <span class="value" style="color: var(--text-primary);">${c.phone || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ที่อยู่</span>
+                    <span class="value" style="color: var(--text-primary); font-size: 0.9em;">${c.address || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">เลขผู้เสียภาษี</span>
+                    <span class="value" style="color: var(--text-primary); font-family: monospace;">${c.tax_id || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ผู้ติดต่อ</span>
+                    <span class="value" style="color: var(--text-primary);">${c.contact_person || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">เครดิต (วัน)</span>
+                    <span class="value" style="color: var(--text-primary); font-weight: 600;">${c.credit_days ? parseFloat(c.credit_days) : '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">วงเงินเครดิต</span>
+                    <span class="value" style="color: var(--text-primary);">${c.credit_limit ? formatPrice(parseFloat(c.credit_limit)) : '-'}</span>
+                </div>
+
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">กำหนดเก็บ</span>
+                    <span class="value" style="color: var(--text-primary);">${c.collection_schedule || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">หมายเหตุเก็บเงิน</span>
+                    <span class="value" style="color: var(--text-primary);">${c.collection_note || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">เปิดบัญชี</span>
+                    <span class="value" style="color: var(--text-primary);">${c.date_opened ? formatBuddhistDate(c.date_opened) : '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ใบกำกับล่าสุด</span>
+                    <span class="value" style="color: var(--text-primary);">${c.date_last_invoice ? formatBuddhistDate(c.date_last_invoice) : '-'} ${c.last_invoice_no || ''}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ชำระล่าสุด</span>
+                    <span class="value" style="color: var(--text-primary);">${c.date_last_payment ? formatBuddhistDate(c.date_last_payment) : '-'} ${c.last_receipt_no || ''}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">พนักงานขาย</span>
+                    <span class="value" style="color: var(--text-primary);">${c.salesperson_code || '-'}</span>
+                </div>
+            </div>
+        `;
+
+        // Render transactions
+        els.custDetailTxnCount.textContent = formatNumber(txns.length);
+
+        if (txns.length === 0) {
+            els.custDetailTxnList.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">ไม่พบประวัติการซื้อ</td></tr>`;
+        } else {
+            els.custDetailTxnList.innerHTML = '';
+            txns.forEach((h) => {
+                const tr = document.createElement('tr');
+                let outHtml = h.qty_out > 0 ? `<span class="change-out">${formatNumber(h.qty_out)}</span>` : '<span class="text-muted">0</span>';
+                let inHtml = h.qty_in > 0 ? `<span class="change-in">+${formatNumber(h.qty_in)}</span>` : '<span class="text-muted">0</span>';
+                tr.innerHTML = `
+                    <td style="white-space:nowrap;">${formatBuddhistDate(h.date)}</td>
+                    <td>${h.doc_ref || '-'}</td>
+                    <td>${getCategoryThai(h.category_name)}</td>
+                    <td><div style="font-family: monospace; font-size: 1.05rem;">${h.sku}</div></td>
+                    <td>${h.name_en || '-'}</td>
+                    <td class="text-right">${inHtml}</td>
+                    <td class="text-right">${outHtml}</td>
+                    <td class="text-right">${h.unit_price ? formatPrice(h.unit_price) : '-'}</td>
+                `;
+                els.custDetailTxnList.appendChild(tr);
+            });
+        }
+    } catch (err) {
+        console.error("Error fetching customer detail:", err);
+        els.customerInfoCard.innerHTML = `<p class="text-error">ไม่สามารถโหลดข้อมูลลูกค้าได้</p>`;
+        els.custDetailTxnList.innerHTML = '';
+    }
+}
+
+// ─── Invoice List & Detail Code ────────────────────────────────────────────
+
+function showInvoiceListMode() {
+    if (els.invoiceListPanel) els.invoiceListPanel.classList.remove('hidden');
+    if (els.invoiceDetailPanel) els.invoiceDetailPanel.classList.add('hidden');
+}
+
+function showInvoiceDetailMode() {
+    if (els.invoiceListPanel) els.invoiceListPanel.classList.add('hidden');
+    if (els.invoiceDetailPanel) els.invoiceDetailPanel.classList.remove('hidden');
+}
+
+async function fetchInvoices() {
+    els.invoiceList.innerHTML = `
+        <tr>
+            <td colspan="9" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">กำลังโหลดใบกำกับภาษี...</p>
+            </td>
+        </tr>
+    `;
+
+    const params = new URLSearchParams({
+        search: state.invoicesSearch,
+        doc_type: state.invoicesDocType,
+        sort: state.invoicesSort,
+        dir: state.invoicesSortDir,
+        page: state.invoicesPage,
+        per_page: state.invoicesPerPage
+    });
+
+    try {
+        const res = await fetch(`/api/invoices?${params}`);
+        const data = await res.json();
+
+        state.invoices = data.items;
+        state.invoicesTotalItems = data.total;
+        state.invoicesTotalPages = data.total_pages;
+        state.invoicesPage = data.page;
+
+        renderInvoices();
+        updateInvoicesPaginationInfo();
+        renderInvoicesPaginationControls();
+    } catch (err) {
+        console.error("Error fetching invoices:", err);
+        els.invoiceList.innerHTML = `
+            <tr>
+                <td colspan="9" class="text-center py-8 text-error">ไม่สามารถโหลดข้อมูลใบกำกับภาษีได้</td>
+            </tr>
+        `;
+    }
+}
+
+function renderInvoices() {
+    if (state.invoices.length === 0) {
+        els.invoiceList.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">ไม่พบใบกำกับภาษี</td></tr>`;
+        return;
+    }
+
+    els.invoiceList.innerHTML = '';
+    state.invoices.forEach((inv) => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        tr.onclick = () => openInvoiceDetail(inv.invoice_number);
+
+        const docTypeBadge = inv.doc_type === 'IV'
+            ? `<span class="brand-badge" style="background: rgba(59, 130, 246, 0.2); color: #93c5fd;">IV</span>`
+            : inv.doc_type === 'OR'
+                ? `<span class="brand-badge" style="background: rgba(245, 158, 11, 0.2); color: #fcd34d;">OR</span>`
+                : `<span class="brand-badge">${inv.doc_type || '-'}</span>`;
+
+        const voidIndicator = inv.void_date ? ` <span style="color: #ef4444; font-size: 0.8em;">(ยกเลิก)</span>` : '';
+
+        tr.innerHTML = `
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${inv.invoice_number}${voidIndicator}</div></td>
+            <td>${docTypeBadge}</td>
+            <td style="white-space:nowrap;">${formatBuddhistDate(inv.invoice_date)}</td>
+            <td><div style="font-family: monospace;">${inv.customer_code || '-'}</div></td>
+            <td>${inv.customer_name || '-'}</td>
+            <td class="text-right">${inv.subtotal ? formatPrice(inv.subtotal) : '-'}</td>
+            <td class="text-right">${inv.vat_amount ? formatPrice(inv.vat_amount) : '-'}</td>
+            <td class="text-right"><strong>${inv.grand_total ? formatPrice(inv.grand_total) : '-'}</strong></td>
+            <td class="text-right"><span class="badge">${inv.line_item_count || 0}</span></td>
+        `;
+
+        els.invoiceList.appendChild(tr);
+    });
+}
+
+function updateInvoicesPaginationInfo() {
+    els.invoiceResultsCount.textContent = formatNumber(state.invoicesTotalItems);
+    els.invTotalResults.textContent = formatNumber(state.invoicesTotalItems);
+
+    if (state.invoicesTotalItems === 0) {
+        els.invPageStart.textContent = '0';
+        els.invPageEnd.textContent = '0';
+    } else {
+        const start = ((state.invoicesPage - 1) * state.invoicesPerPage) + 1;
+        const end = Math.min(state.invoicesPage * state.invoicesPerPage, state.invoicesTotalItems);
+        els.invPageStart.textContent = formatNumber(start);
+        els.invPageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderInvoicesPaginationControls() {
+    els.invBtnPrev.disabled = state.invoicesPage <= 1;
+    els.invBtnNext.disabled = state.invoicesPage >= state.invoicesTotalPages;
+
+    els.invPageNumbers.innerHTML = '';
+    if (state.invoicesTotalPages <= 1) return;
+
+    let startPage = Math.max(1, state.invoicesPage - 2);
+    let endPage = Math.min(state.invoicesTotalPages, startPage + 4);
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    if (startPage > 1) {
+        addInvPageButton(1);
+        if (startPage > 2) addEllipsis(els.invPageNumbers);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        addInvPageButton(i);
+    }
+
+    if (endPage < state.invoicesTotalPages) {
+        if (endPage < state.invoicesTotalPages - 1) addEllipsis(els.invPageNumbers);
+        addInvPageButton(state.invoicesTotalPages);
+    }
+}
+
+function addInvPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.invoicesPage ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.invoicesPage) {
+        btn.onclick = () => {
+            state.invoicesPage = pageNum;
+            fetchInvoices();
+        };
+    }
+    els.invPageNumbers.appendChild(btn);
+}
+
+async function openInvoiceDetail(invoiceNumber) {
+    if (!_handlingPopstate) navPush('invoice/' + encodeURIComponent(invoiceNumber));
+    state.invoiceDetailNumber = invoiceNumber;
+    showInvoiceDetailMode();
+
+    // Show loading
+    els.invoiceInfoCard.innerHTML = `<div class="spinner"></div><p class="text-muted">กำลังโหลดข้อมูล...</p>`;
+    els.invDetailItemsList.innerHTML = '';
+    els.invDetailItemCount.textContent = '--';
+
+    try {
+        const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceNumber)}`);
+        const data = await res.json();
+
+        if (data.error) {
+            els.invoiceInfoCard.innerHTML = `<p class="text-error">ไม่พบใบกำกับภาษี: ${invoiceNumber}</p>`;
+            return;
+        }
+
+        const h = data.header;
+        const items = data.line_items || [];
+
+        const docTypeBadge = h.doc_type === 'IV'
+            ? `<span class="brand-badge" style="background: rgba(59, 130, 246, 0.3); color: #93c5fd; font-size: 1rem; padding: 0.3rem 0.8rem;">ใบกำกับภาษี (IV)</span>`
+            : h.doc_type === 'OR'
+                ? `<span class="brand-badge" style="background: rgba(245, 158, 11, 0.3); color: #fcd34d; font-size: 1rem; padding: 0.3rem 0.8rem;">นอกระบบ (OR)</span>`
+                : `<span class="brand-badge">${h.doc_type || '-'}</span>`;
+
+        const voidBadge = h.void_date
+            ? `<span style="background: rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 0.3rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.9rem; margin-left: 0.5rem;">ยกเลิก ${formatBuddhistDate(h.void_date)}</span>`
+            : '';
+
+        els.invoiceInfoCard.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                <h2 style="margin: 0; font-family: monospace; font-size: 1.5rem; color: var(--text-primary);">${h.invoice_number}</h2>
+                ${docTypeBadge}
+                ${voidBadge}
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem;">
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">วันที่</span>
+                    <span class="value" style="color: var(--text-primary);">${formatBuddhistDate(h.invoice_date)}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">วันครบกำหนด</span>
+                    <span class="value" style="color: var(--text-primary);">${formatBuddhistDate(h.due_date)}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">รหัสลูกค้า</span>
+                    <span class="value" style="color: var(--text-primary); font-family: monospace;">${h.customer_code || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ชื่อลูกค้า</span>
+                    <span class="value" style="color: var(--text-primary);">${h.customer_name || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">พนักงานขาย</span>
+                    <span class="value" style="color: var(--text-primary);">${h.salesperson_code || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">เครดิต (วัน)</span>
+                    <span class="value" style="color: var(--text-primary);">${h.credit_days || '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ยอดรวม</span>
+                    <span class="value price-value" style="color: var(--text-primary);">${formatPrice(h.subtotal || 0)}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ส่วนลด</span>
+                    <span class="value" style="color: var(--text-primary);">${h.discount ? formatPrice(h.discount) : '-'}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ภาษี (${h.vat_rate || 0}%)</span>
+                    <span class="value" style="color: var(--text-primary);">${formatPrice(h.vat_amount || 0)}</span>
+                </div>
+                <div class="detail-item">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ยอดสุทธิ</span>
+                    <span class="value" style="color: #22c55e; font-size: 1.3rem; font-weight: 700;">${formatPrice(h.grand_total || 0)}</span>
+                </div>
+                <div class="detail-item" style="grid-column: span 2;">
+                    <span class="label" style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">ที่อยู่จัดส่ง</span>
+                    <span class="value" style="color: var(--text-primary);">${h.delivery_address || '-'}</span>
+                </div>
+            </div>
+        `;
+
+        // Render line items
+        els.invDetailItemCount.textContent = formatNumber(items.length);
+
+        if (items.length === 0) {
+            els.invDetailItemsList.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">ไม่พบรายการสินค้า</td></tr>`;
+        } else {
+            els.invDetailItemsList.innerHTML = '';
+            items.forEach((li, idx) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${li.line_number || (idx + 1)}</td>
+                    <td><div style="font-family: monospace; font-size: 1.05rem;">${li.sku || '-'}</div></td>
+                    <td>${li.product_name || '-'}</td>
+                    <td>${li.location || '-'}</td>
+                    <td class="text-right"><strong>${formatNumber(li.qty || 0)}</strong></td>
+                    <td class="text-right">${li.unit_price ? formatPrice(li.unit_price) : '-'}</td>
+                    <td class="text-right"><strong>${li.total_price ? formatPrice(li.total_price) : '-'}</strong></td>
+                    <td>${li.salesperson_name || '-'}</td>
+                    <td><span style="font-family: monospace; font-size: 0.9rem;">${li.or_doc_ref || '-'}</span></td>
+                `;
+                els.invDetailItemsList.appendChild(tr);
+            });
+        }
+    } catch (err) {
+        console.error("Error fetching invoice detail:", err);
+        els.invoiceInfoCard.innerHTML = `<p class="text-error">ไม่สามารถโหลดข้อมูลใบกำกับภาษีได้</p>`;
+        els.invDetailItemsList.innerHTML = '';
+    }
+}
+
+// ─── Auto-Sync: Real-time sync status via SSE ─────────────────────────────────
+// Connects to the server's SSE endpoint. When source files on Z:\ change, the
+// server detects this and runs extraction in the background. The UI gets live
+// updates and auto-refreshes affected data when sync completes.
+
+(function initAutoSync() {
+    const statusBar = document.getElementById('sync-status-bar');
+    const syncDot = document.getElementById('sync-dot');
+    const syncLabel = document.getElementById('sync-label');
+    const progressText = document.getElementById('sync-progress-text');
+
+    if (!statusBar) return;
+
+    const sourceItems = {
+        master: document.querySelector('.sync-item[data-source="master"]'),
+        ledger: document.querySelector('.sync-item[data-source="ledger"]'),
+        customer: document.querySelector('.sync-item[data-source="customer"]'),
+        invoice: document.querySelector('.sync-item[data-source="invoice"]'),
+    };
+
+    const sourceDots = {
+        master: document.getElementById('sync-dot-master'),
+        ledger: document.getElementById('sync-dot-ledger'),
+        customer: document.getElementById('sync-dot-customer'),
+        invoice: document.getElementById('sync-dot-invoice'),
+    };
+
+    const sourceToggles = {
+        master: document.getElementById('sync-toggle-master'),
+        ledger: document.getElementById('sync-toggle-ledger'),
+        customer: document.getElementById('sync-toggle-customer'),
+        invoice: document.getElementById('sync-toggle-invoice'),
+    };
+
+    // ── Toggle State Management ──────────────────────────────────────────────
+
+    // Load saved toggle states from localStorage
+    function loadToggleStates() {
+        const saved = localStorage.getItem('syncAutoEnabled');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch (e) { /* ignore */ }
+        }
+        // Default: all OFF
+        return { master: false, ledger: false, customer: false, invoice: false };
+    }
+
+    // Save toggle states to localStorage
+    function saveToggleStates(states) {
+        localStorage.setItem('syncAutoEnabled', JSON.stringify(states));
+    }
+
+    // Apply toggle states to UI checkboxes and item styling
+    function applyToggleUI(states) {
+        for (const [source, enabled] of Object.entries(states)) {
+            const toggle = sourceToggles[source];
+            const item = sourceItems[source];
+            if (toggle) {
+                toggle.checked = enabled;
+            }
+            if (item) {
+                item.classList.toggle('disabled', !enabled);
+            }
+        }
+        updateOverallLabel(states);
+    }
+
+    // Update the main label to show how many are enabled
+    function updateOverallLabel(states) {
+        const enabledCount = Object.values(states).filter(v => v).length;
+        if (enabledCount === 0) {
+            syncLabel.textContent = 'Auto-Sync';
+        } else {
+            syncLabel.textContent = `Auto-Sync (${enabledCount}/4)`;
+        }
+    }
+
+    // Send toggle states to the server
+    async function syncConfigToServer(states) {
+        try {
+            await fetch('/api/sync/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(states),
+            });
+        } catch (err) {
+            console.error('[AutoSync] Failed to sync config to server:', err);
+        }
+    }
+
+    // Handle toggle change
+    function onToggleChange(source, enabled) {
+        const states = loadToggleStates();
+        states[source] = enabled;
+        saveToggleStates(states);
+        applyToggleUI(states);
+        syncConfigToServer(states);
+        console.log(`[AutoSync] ${source} auto-sync ${enabled ? 'ON' : 'OFF'}`);
+    }
+
+    // Wire up toggle event listeners
+    for (const [source, toggle] of Object.entries(sourceToggles)) {
+        if (toggle) {
+            toggle.addEventListener('change', (e) => {
+                e.stopPropagation(); // Don't trigger the parent click-to-sync
+                onToggleChange(source, e.target.checked);
+            });
+        }
+    }
+
+    // Initialize toggles from localStorage for immediate display (before SSE connects).
+    // Do NOT push to server here — the server is the source of truth.
+    // When SSE 'init' arrives, it will overwrite localStorage with the server's actual state.
+    const initialStates = loadToggleStates();
+    applyToggleUI(initialStates);
+
+    // ── Source Status UI Updates ──────────────────────────────────────────────
+
+    function updateSourceUI(source, status) {
+        const dot = sourceDots[source];
+        const item = sourceItems[source];
+        if (dot) {
+            dot.className = `sync-item-dot ${status}`;
+        }
+        if (item) {
+            // Preserve 'disabled' class based on toggle state
+            const states = loadToggleStates();
+            const isDisabled = !states[source];
+            item.className = `sync-item ${status}${isDisabled ? ' disabled' : ''}`;
+        }
+    }
+
+    function updateOverallStatus() {
+        const allDots = Object.values(sourceDots);
+        const anySyncing = allDots.some(d => d && d.classList.contains('syncing'));
+        const anyError = allDots.some(d => d && d.classList.contains('error'));
+
+        statusBar.classList.toggle('syncing', anySyncing);
+        statusBar.classList.toggle('has-error', anyError);
+
+        const states = loadToggleStates();
+        if (anySyncing) {
+            syncDot.className = 'sync-dot syncing';
+        } else if (anyError) {
+            syncDot.className = 'sync-dot error';
+        } else {
+            syncDot.className = 'sync-dot idle';
+        }
+        updateOverallLabel(states);
+    }
+
+    // Auto-refresh the relevant data views when sync completes.
+    // Uses server-provided changes when available (from SSE event payload).
+    // Falls back to local snapshot diff if server changes are not provided.
+    // Highlights PERSIST until the next sync replaces them.
+    async function onSyncDone(source, serverChanges) {
+        console.log(`[AutoSync] ${source} sync done — refreshing data...`);
+        try {
+            const hadPreviousHighlights = state.syncNewProductSkus.size > 0 || state.syncNewMoveKeys.size > 0;
+
+            // ── Refresh data ────────────────────────────────────────────────
+            if (source === 'master') {
+                await fetchStats();
+                if (state.currentTab === 'products') await fetchProducts();
+            } else if (source === 'ledger') {
+                await fetchStats();
+                if (state.currentTab === 'products') await fetchProducts();
+                if (state.currentTab === 'moves') await fetchMoves();
+            } else if (source === 'customer') {
+                await fetchStats();
+                if (state.currentTab === 'customer') await fetchCustomers();
+            } else if (source === 'invoice') {
+                await fetchStats();
+                if (state.currentTab === 'invoice') await fetchInvoices();
+            }
+
+            // ── Apply changes from server ─────────────────────────────────
+            if (source === 'master' || source === 'ledger') {
+                const changedSkus = serverChanges?.changed_product_skus || [];
+                const newMoveKeysArr = serverChanges?.new_move_keys || [];
+                const detTimes = serverChanges?.detection_times || {};
+
+                state.syncNewProductSkus = new Set(changedSkus);
+                state.syncNewMoveKeys = new Set(newMoveKeysArr);
+                // Merge detection times — keep previous detections from today,
+                // add new ones (server already merges, but SSE only sends the
+                // latest sync's changes so we merge on the client too).
+                for (const [sku, time] of Object.entries(detTimes)) {
+                    state.syncDetectionTimes.set(sku, time);
+                }
+
+                // Re-render to apply (or clear) highlights
+                const needsRerender = changedSkus.length > 0 || newMoveKeysArr.length > 0 || hadPreviousHighlights;
+                if (needsRerender && state.currentTab === 'products') renderProducts();
+                if (needsRerender && state.currentTab === 'moves') renderMoves();
+
+                if (changedSkus.length > 0) console.log(`[AutoSync] Highlighted ${changedSkus.length} changed product(s)`);
+                if (newMoveKeysArr.length > 0) console.log(`[AutoSync] Highlighted ${newMoveKeysArr.length} new move(s)`);
+            }
+
+            // ── Disappeared transaction alert ──────────────────────────
+            if (serverChanges?.disappeared_count > 0) {
+                showDisappearedWarning(
+                    serverChanges.disappeared_count,
+                    serverChanges.disappeared_transactions || []
+                );
+            }
+        } catch (err) {
+            console.error(`[AutoSync] Error refreshing after ${source} sync:`, err);
+        }
+    }
+
+    // ── SSE Message Handler ──────────────────────────────────────────────────
+
+    function handleSyncMessage(data) {
+        try {
+            const msg = JSON.parse(data);
+
+            switch (msg.type) {
+                case 'init':
+                    // Initial state snapshot
+                    for (const [source, info] of Object.entries(msg.state || {})) {
+                        updateSourceUI(source, info.status || 'idle');
+                    }
+                    // Sync toggle states from server (in case another tab changed them)
+                    if (msg.enabled) {
+                        saveToggleStates(msg.enabled);
+                        applyToggleUI(msg.enabled);
+                    }
+                    updateOverallStatus();
+                    break;
+
+                case 'config_update':
+                    // Another tab or the server changed toggle config
+                    if (msg.enabled) {
+                        saveToggleStates(msg.enabled);
+                        applyToggleUI(msg.enabled);
+                    }
+                    break;
+
+                case 'sync_start':
+                    updateSourceUI(msg.source, 'syncing');
+                    progressText.textContent = `${msg.source}: Starting extraction...`;
+                    updateOverallStatus();
+                    break;
+
+                case 'sync_progress':
+                    updateSourceUI(msg.source, 'syncing');
+                    progressText.textContent = `${msg.source}: ${msg.progress || '...'}`;
+                    updateOverallStatus();
+                    break;
+
+                case 'sync_done':
+                    updateSourceUI(msg.source, 'done');
+                    progressText.textContent = `${msg.source}: ✅ Complete`;
+                    updateOverallStatus();
+                    onSyncDone(msg.source, msg.changes);
+                    setTimeout(() => {
+                        updateSourceUI(msg.source, 'idle');
+                        progressText.textContent = '';
+                        updateOverallStatus();
+                    }, 5000);
+                    break;
+
+                case 'sync_error':
+                    updateSourceUI(msg.source, 'error');
+                    progressText.textContent = `${msg.source}: ❌ ${msg.error || 'Error'}`;
+                    updateOverallStatus();
+                    setTimeout(() => {
+                        updateSourceUI(msg.source, 'idle');
+                        progressText.textContent = '';
+                        updateOverallStatus();
+                    }, 10000);
+                    break;
+            }
+        } catch (e) {
+            console.error('[AutoSync] Parse error:', e);
+        }
+    }
+
+    // ── SSE Connection ───────────────────────────────────────────────────────
+
+    let evtSource = null;
+    let reconnectTimer = null;
+
+    function connectSSE() {
+        if (evtSource) {
+            evtSource.close();
+        }
+
+        evtSource = new EventSource('/api/sync/events');
+
+        evtSource.onmessage = (event) => {
+            handleSyncMessage(event.data);
+        };
+
+        evtSource.onerror = () => {
+            evtSource.close();
+            syncDot.className = 'sync-dot idle';
+            syncLabel.textContent = 'Auto-Sync: Reconnecting...';
+            clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectSSE, 5000);
+        };
+
+        evtSource.onopen = () => {
+            console.log('[AutoSync] SSE connected');
+            // Server is the source of truth — do NOT push localStorage on reconnect.
+            // The 'init' SSE message will send the server's current state to us.
+        };
+    }
+
+    // ── Click-to-Sync (on dot/label, not on toggle) ─────────────────────────
+
+    for (const [source, item] of Object.entries(sourceItems)) {
+        if (item) {
+            // Only trigger manual sync when clicking the dot or label, not the toggle
+            const dot = sourceDots[source];
+            const label = item.querySelector('.sync-item-label');
+
+            const triggerManualSync = async (e) => {
+                e.stopPropagation();
+                if (dot && dot.classList.contains('syncing')) return;
+                try {
+                    const res = await fetch(`/api/sync/trigger/${source}`, { method: 'POST' });
+                    const data = await res.json();
+                    if (!data.success) {
+                        console.warn(`[AutoSync] Trigger failed: ${data.message}`);
+                    }
+                } catch (err) {
+                    console.error(`[AutoSync] Trigger error:`, err);
+                }
+            };
+
+            if (dot) {
+                dot.addEventListener('click', triggerManualSync);
+                dot.style.cursor = 'pointer';
+                dot.title = `Click to manually sync ${source}`;
+            }
+            if (label) {
+                label.addEventListener('click', triggerManualSync);
+                label.style.cursor = 'pointer';
+                label.title = `Click to manually sync ${source}`;
+            }
+        }
+    }
+
+    // Start SSE connection
+    connectSSE();
+})();
+
+// ─── Image Hover Preview on Product Table & Modal ──────────────────────────
+// Shows full-size image when user hovers over a thumbnail in the product list
+// or over the main image in the product modal.
+// Uses delegated events so it works with dynamically-rendered rows.
+// No extra network requests — reuses the already-cached image.
+(function initImageHoverPreview() {
+    // Create the preview element once
+    const preview = document.createElement('div');
+    preview.className = 'image-hover-preview preview-sm';
+    preview.innerHTML = '<img>';
+    document.body.appendChild(preview);
+    const previewImg = preview.querySelector('img');
+
+    let isVisible = false;
+
+    // Position the preview near the cursor, keeping it within viewport
+    function positionPreview(e) {
+        const gap = 16;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const pw = preview.offsetWidth || 400;
+        const ph = preview.offsetHeight || 400;
+
+        let x = e.clientX + gap;
+        let y = e.clientY - ph / 2;
+
+        // Keep within right edge
+        if (x + pw > vw - gap) {
+            x = e.clientX - pw - gap;
+        }
+        // Keep within top/bottom
+        if (y < gap) y = gap;
+        if (y + ph > vh - gap) y = vh - ph - gap;
+
+        preview.style.left = x + 'px';
+        preview.style.top = y + 'px';
+    }
+
+    function showPreview(imgSrc, e, sizeClass) {
+        previewImg.src = imgSrc;
+        preview.className = `image-hover-preview ${sizeClass}`;
+        isVisible = true;
+        positionPreview(e);
+        requestAnimationFrame(() => preview.classList.add('visible'));
+    }
+
+    function hidePreview() {
+        isVisible = false;
+        preview.classList.remove('visible');
+    }
+
+    // ── Product list table thumbnails ──────────────────────────────────
+    const productList = document.getElementById('product-list');
+    if (productList) {
+        productList.addEventListener('mouseenter', (e) => {
+            const thumbCell = e.target.closest('.thumb-cell');
+            if (!thumbCell) return;
+            const img = thumbCell.querySelector('img');
+            if (!img) return;
+            showPreview(img.src, e, 'preview-sm');
+        }, true);
+
+        productList.addEventListener('mouseleave', (e) => {
+            const thumbCell = e.target.closest('.thumb-cell');
+            if (!thumbCell) return;
+            hidePreview();
+        }, true);
+
+        productList.addEventListener('mousemove', (e) => {
+            if (!isVisible) return;
+            positionPreview(e);
+        });
+    }
+
+    // ── Modal main image ──────────────────────────────────────────────
+    const modalMainImg = document.getElementById('modal-main-image');
+    if (modalMainImg) {
+        modalMainImg.addEventListener('mouseenter', (e) => {
+            if (!modalMainImg.src || modalMainImg.style.display === 'none') return;
+            showPreview(modalMainImg.src, e, 'preview-lg');
+        });
+
+        modalMainImg.addEventListener('mouseleave', () => {
+            hidePreview();
+        });
+
+        modalMainImg.addEventListener('mousemove', (e) => {
+            if (!isVisible) return;
+            positionPreview(e);
+        });
+    }
+
+    // ── Hide preview when modal closes ────────────────────────────────
+    const modal = document.getElementById('product-modal');
+    if (modal) {
+        const observer = new MutationObserver(() => {
+            if (modal.classList.contains('hidden')) {
+                hidePreview();
+            }
+        });
+        observer.observe(modal, { attributes: true, attributeFilter: ['class'] });
+    }
+})();
+
+// ─── Disappeared Transactions Warning Banner ────────────────────────────────
+
+(function initDisappearedWarning() {
+    const banner = document.getElementById('disappeared-warning');
+    const titleEl = document.getElementById('disappeared-title');
+    const detailsEl = document.getElementById('disappeared-details');
+    const viewBtn = document.getElementById('disappeared-view-btn');
+    const dismissBtn = document.getElementById('disappeared-dismiss-btn');
+    const detailList = document.getElementById('disappeared-detail-list');
+
+    if (!banner) return;
+
+    // Dismiss button hides the banner
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            banner.classList.add('hidden');
+        });
+    }
+
+    // View button toggles the detail list
+    if (viewBtn) {
+        viewBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (detailList) {
+                detailList.classList.toggle('hidden');
+                viewBtn.textContent = detailList.classList.contains('hidden') ? 'ดูรายละเอียด' : 'ซ่อนรายละเอียด';
+            }
+        });
+    }
+
+    // Check on page load if there are disappeared transactions from last sync
+    fetch('/api/sync/changes')
+        .then(res => res.json())
+        .then(data => {
+            if (data.disappeared_count > 0) {
+                showDisappearedWarning(data.disappeared_count, data.disappeared_transactions || []);
+            }
+        })
+        .catch(() => {});
+})();
+
+function showDisappearedWarning(count, transactions) {
+    const banner = document.getElementById('disappeared-warning');
+    const titleEl = document.getElementById('disappeared-title');
+    const detailsEl = document.getElementById('disappeared-details');
+    const detailList = document.getElementById('disappeared-detail-list');
+    const viewBtn = document.getElementById('disappeared-view-btn');
+
+    if (!banner) return;
+
+    titleEl.textContent = `⚠️ ตรวจพบ ${count} รายการถูกลบจากระบบ ERP เก่า`;
+    detailsEl.textContent = `Detected ${count} transaction(s) that previously existed but are now missing from source data.`;
+
+    // Build detail table
+    if (detailList && transactions.length > 0) {
+        let html = `<table>
+            <thead><tr>
+                <th>วันที่</th><th>เอกสาร</th><th>Part Code</th>
+                <th>ประเภท</th><th>รับเข้า</th><th>จ่ายออก</th>
+            </tr></thead><tbody>`;
+
+        transactions.forEach(t => {
+            html += `<tr>
+                <td>${t.date || '-'}</td>
+                <td>${t.doc_ref || '-'}</td>
+                <td>${t.part_code || '-'}</td>
+                <td style="font-family: var(--font-sans);">${t.category_name || '-'}</td>
+                <td>${t.qty_in || 0}</td>
+                <td>${t.qty_out || 0}</td>
+            </tr>`;
+        });
+
+        if (count > transactions.length) {
+            html += `<tr><td colspan="6" class="more-label">... และอีก ${count - transactions.length} รายการ (ดูทั้งหมดที่ /api/disappeared-transactions)</td></tr>`;
+        }
+
+        html += '</tbody></table>';
+        detailList.innerHTML = html;
+        detailList.classList.add('hidden'); // Start collapsed
+        if (viewBtn) viewBtn.textContent = 'ดูรายละเอียด';
+    } else if (detailList) {
+        detailList.innerHTML = '';
+        detailList.classList.add('hidden');
+    }
+
+    banner.classList.remove('hidden');
+    console.log(`[AutoSync] ⚠️ Showing disappeared warning: ${count} transaction(s)`);
+}

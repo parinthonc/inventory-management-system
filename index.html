@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CW Equipment</title>
+    <link rel="icon" type="image/png" href="/api/logo">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="index.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="navbar">
+            <div class="container">
+                <a href="#products" class="brand" id="brand-home-link" title="Go to homepage">
+                    <img src="/api/logo" alt="Logo" class="logo-img"
+                        style="max-height: 28px; width: auto; object-fit: contain;">
+                    <h1>CW EQUIPMENT</h1>
+                </a>
+                <div class="stats">
+                    <!-- Refresh buttons: horizontal row, compact with inline date -->
+                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-right: 0.75rem;">
+                        <button id="refresh-invoice-btn" class="btn btn-outline btn-compact" title="Updated: --">
+                            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                            Refresh Invoice
+                            <span id="invoice-mod-date" class="btn-mod-date">--</span>
+                        </button>
+                        <button id="refresh-customer-btn" class="btn btn-outline btn-compact" title="Updated: --">
+                            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg>
+                            Refresh Customer
+                            <span id="customer-mod-date" class="btn-mod-date">--</span>
+                        </button>
+                        <button id="refresh-master-btn" class="btn btn-outline btn-compact" title="Updated: --">
+                            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="12" cy="7" r="4"></circle>
+                            </svg>
+                            Refresh Master
+                            <span id="master-mod-date" class="btn-mod-date">--</span>
+                        </button>
+                        <button id="refresh-ledger-btn" class="btn btn-outline btn-compact" title="Updated: --">
+                            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <polyline points="1 20 1 14 7 14"></polyline>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                            </svg>
+                            Refresh Ledger
+                            <span id="ledger-mod-date" class="btn-mod-date">--</span>
+                        </button>
+                        <button id="import-csv-btn" class="btn btn-outline btn-compact"
+                            style="border-color: rgba(34,197,94,0.5); color: #86efac;">
+                            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
+                                </path>
+                                <line x1="12" y1="11" x2="12" y2="17"></line>
+                                <polyline points="9 14 12 11 15 14"></polyline>
+                            </svg>
+                            Import CSV
+                        </button>
+                    </div>
+                    <div class="stat-badge">
+                        <span class="stat-label">Total SKUs:</span>
+                        <span class="stat-value" id="total-skus">--</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="container main-content">
+            <!-- Disappeared Transactions Warning Banner (hidden by default, shown via JS) -->
+            <div id="disappeared-warning" class="disappeared-warning hidden">
+                <div class="disappeared-warning-inner">
+                    <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none"
+                        style="flex-shrink: 0;">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <div class="disappeared-warning-text">
+                        <strong id="disappeared-title">⚠️ ตรวจพบรายการถูกลบจากระบบ ERP เก่า</strong>
+                        <span id="disappeared-details"></span>
+                    </div>
+                    <button id="disappeared-view-btn" class="btn btn-outline btn-compact"
+                        style="border-color: rgba(239,68,68,0.5); color: #fca5a5; white-space: nowrap;">
+                        ดูรายละเอียด
+                    </button>
+                    <button id="disappeared-dismiss-btn" class="btn-close" style="position: static; padding: 0.25rem;" title="ปิด">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+                <!-- Expandable detail list -->
+                <div id="disappeared-detail-list" class="disappeared-detail-list hidden"></div>
+            </div>
+            <!-- Tabs Navigation -->
+            <div class="tabs-container">
+                <button id="tab-btn-products" class="tab-btn active">Products</button>
+                <button id="tab-btn-moves" class="tab-btn">Stock Moves</button>
+                <button id="tab-btn-flags" class="tab-btn">รายการของไม่ตรงหน้าเครื่อง</button>
+                <button id="tab-btn-customer" class="tab-btn">ประวัติลูกค้า</button>
+                <button id="tab-btn-invoice" class="tab-btn">ใบกำกับภาษี</button>
+            </div>
+
+            <!-- ===== PRODUCTS VIEW ===== -->
+            <div id="view-products" class="view-panel">
+                <!-- Filters & Controls -->
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="search-input" placeholder="ค้นหาด้วยรหัสสินค้า ชื่อ หรือ SKU...">
+                    </div>
+
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label for="brand-filter">Brand</label>
+                            <select id="brand-filter" class="select-css">
+                                <option value="">All Brands</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="suffix-filter">Type</label>
+                            <select id="suffix-filter" class="select-css">
+                                <option value="">All Types</option>
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="sort-filter">เรียงตาม</label>
+                            <select id="sort-filter" class="select-css">
+                                <option value="part_code">Part Code</option>
+                                <option value="suffix">Type</option>
+                                <option value="brand">Brand</option>
+                                <option value="name_eng">Description</option>
+                                <option value="size">Size/Spec (ขนาด)</option>
+                                <option value="locations">Location (คลัง)</option>
+                                <option value="qty">Qty</option>
+                                <option value="sale_price">ราคาต่อหน่วย</option>
+                                <option value="last_sold_date" selected>วันที่ขายล่าสุด</option>
+                                <option value="amount_sold">Amount Sold</option>
+                                <option value="relevance">Relevance</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="active-filter">Activity</label>
+                            <select id="active-filter" class="select-css">
+                                <option value="">All Stock</option>
+                                <option value="1">Moved Last 1 Day</option>
+                                <option value="7">Moved Last 7 Days</option>
+                                <option value="30">Moved Last 30 Days</option>
+                                <option value="90">Moved Last 90 Days</option>
+                                <option value="365">Moved Last Year</option>
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <label for="thumb-size-slider">Image Size</label>
+                            <div class="slider-container" style="padding: 0.6em 0;">
+                                <input type="range" id="thumb-size-slider" min="40" max="250" value="72" class="slider">
+                            </div>
+                        </div>
+
+                        <div class="filter-group hide-label">
+                            <button id="sort-dir-btn" class="btn btn-icon" title="Toggle Sort Direction">
+                                <svg id="sort-icon-asc" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor"
+                                    stroke-width="2" fill="none" class="hidden">
+                                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                                    <polyline points="5 12 12 5 19 12"></polyline>
+                                </svg>
+                                <svg id="sort-icon-desc" viewBox="0 0 24 24" width="20" height="20"
+                                    stroke="currentColor" stroke-width="2" fill="none">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <polyline points="19 12 12 19 5 12"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Results Data -->
+                <section class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>Products <span id="results-count" class="badge">--</span></h2>
+                        <!-- Pagination info -->
+                        <div class="pagination-info" id="pagination-info">
+                            Showing <span id="page-start">0</span> - <span id="page-end">0</span> of <span
+                                id="total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-img">Image</th>
+                                    <th class="sortable" data-sort="part_code">Part Code <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="suffix">Type <span class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="brand">Brand <span class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="name_eng">Description <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="size">Size/Spec (ขนาด) <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="locations">Location (คลัง) <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="qty">Qty <span class="sort-arrow"></span>
+                                    </th>
+                                    <th class="sortable text-right" data-sort="sale_price">ราคาต่อหน่วย <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="last_sold_date">วันที่ขายล่าสุด <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right hidden" id="col-amount-sold" data-sort="amount_sold">
+                                        Amount Sold <span class="sort-arrow"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="product-list">
+                                <!-- Items populated by JS -->
+                                <tr>
+                                    <td colspan="11" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">Loading inventory data...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination Controls -->
+                    <div class="pagination-controls">
+                        <button id="btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="page-numbers">
+                            <!-- Populated by JS -->
+                        </div>
+                        <button id="btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+            </div> <!-- End Products View -->
+
+            <!-- ===== STOCK MOVES VIEW ===== -->
+            <div id="view-moves" class="view-panel hidden">
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="moves-search-input" placeholder="ค้นหาด้วยรหัสสินค้าหรือชื่อ...">
+                    </div>
+
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label for="moves-type-filter">Move Type</label>
+                            <select id="moves-type-filter" class="select-css">
+                                <option value="all" selected>All Changes</option>
+                                <option value="in">In (Restock)</option>
+                                <option value="out">Out (Sales)</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>Stock Moves <span id="moves-results-count" class="badge">--</span></h2>
+                        <div class="pagination-info">
+                            Showing <span id="moves-page-start">0</span> - <span id="moves-page-end">0</span> of <span
+                                id="moves-total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="date">วันที่ <span class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="doc_ref">เอกสาร <span class="sort-arrow"></span>
+                                    </th>
+                                    <th class="sortable" data-sort="category_name">ประเภท <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="part_code">Part Code <span
+                                            class="sort-arrow"></span></th>
+                                    <th>Description</th>
+                                    <th class="sortable text-right" data-sort="qty_in">รับเข้า <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="qty_out">จ่ายออก <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="unit_price">ราคา/หน่วย <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="running_balance">ยอดคงเหลือ <span
+                                            class="sort-arrow"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="moves-list">
+                                <tr>
+                                    <td colspan="9" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">Loading moves...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-controls">
+                        <button id="moves-btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="moves-page-numbers"></div>
+                        <button id="moves-btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+            </div> <!-- End Stock Moves View -->
+
+            <!-- ===== STOCK FLAGS VIEW ===== -->
+            <div id="view-flags" class="view-panel hidden">
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="flags-search-input" placeholder="ค้นหารายการของไม่ตรงหน้าเครื่อง...">
+                    </div>
+                </section>
+
+                <section class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>รายการของไม่ตรงหน้าเครื่อง <span id="flags-results-count" class="badge">--</span></h2>
+                        <div class="pagination-info">
+                            Showing <span id="flags-page-start">0</span> - <span id="flags-page-end">0</span> of <span
+                                id="flags-total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-img">Image</th>
+                                    <th class="sortable" data-sort="part_code">Part Code <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="name_eng">Description <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="brand">Brand <span class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="system_qty">Qty (System) <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="flag_type">Issue Type / Note <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="flagged_at">Date Flagged <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="flags-list">
+                                <tr>
+                                    <td colspan="8" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">Loading flagged items...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-controls">
+                        <button id="flags-btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="flags-page-numbers"></div>
+                        <button id="flags-btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+            </div> <!-- End Stock Flags View -->
+            <!-- ===== VIEW ประวัติลูกค้า ===== -->
+            <div id="view-customer" class="view-panel hidden">
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="customer-search-input"
+                            placeholder="ค้นหาด้วยรหัส ชื่อ โทร เลขผู้เสียภาษี...">
+                    </div>
+                </section>
+
+                <!-- CUSTOMER LIST MODE -->
+                <section id="customer-list-panel" class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>รายชื่อลูกค้า <span id="customer-results-count" class="badge">--</span></h2>
+                        <div class="pagination-info">
+                            Showing <span id="cust-page-start">0</span> - <span id="cust-page-end">0</span> of <span
+                                id="cust-total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>รหัส</th>
+                                    <th>ชื่อลูกค้า</th>
+                                    <th>โทรศัพท์</th>
+                                    <th class="text-right">เครดิต(วัน)</th>
+                                    <th>สถานะ</th>
+                                    <th class="text-right">รายการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customer-list">
+                                <tr>
+                                    <td colspan="6" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">กำลังโหลดรายชื่อลูกค้า...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-controls">
+                        <button id="cust-btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="cust-page-numbers"></div>
+                        <button id="cust-btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- CUSTOMER DETAIL MODE (hidden by default) -->
+                <section id="customer-detail-panel" class="hidden">
+                    <button id="cust-back-btn" class="btn btn-outline" style="margin-bottom: 1rem;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                            fill="none">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                        กลับไปรายชื่อ
+                    </button>
+
+                    <!-- Customer info card -->
+                    <div id="customer-info-card" class="card glass" style="padding: 1.5rem; margin-bottom: 1rem;">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Transaction table -->
+                    <div class="results-panel card glass">
+                        <div class="table-header">
+                            <h2>ประวัติการซื้อ <span id="cust-detail-txn-count" class="badge">--</span></h2>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>วันที่</th>
+                                        <th>เอกสาร</th>
+                                        <th>ประเภท</th>
+                                        <th>รหัสสินค้า</th>
+                                        <th>รายละเอียด</th>
+                                        <th class="text-right">รับเข้า</th>
+                                        <th class="text-right">จ่ายออก</th>
+                                        <th class="text-right">ราคา/หน่วย</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cust-detail-txn-list">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div> <!-- End Customer Activity View -->
+
+            <!-- ===== INVOICE VIEW ===== -->
+            <div id="view-invoice" class="view-panel hidden">
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="invoice-search-input"
+                            placeholder="ค้นหาด้วยเลขที่ใบกำกับ รหัสลูกค้า ชื่อลูกค้า...">
+                    </div>
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label for="invoice-doctype-filter">ประเภทเอกสาร</label>
+                            <select id="invoice-doctype-filter" class="select-css">
+                                <option value="" selected>ทั้งหมด</option>
+                                <option value="IV">IV - ใบกำกับภาษี</option>
+                                <option value="OR">OR - นอกระบบ</option>
+                            </select>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- INVOICE LIST MODE -->
+                <section id="invoice-list-panel" class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>ใบกำกับภาษี <span id="invoice-results-count" class="badge">--</span></h2>
+                        <div class="pagination-info">
+                            Showing <span id="inv-page-start">0</span> - <span id="inv-page-end">0</span> of <span
+                                id="inv-total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table" id="invoice-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="invoice_number">เลขที่ <span
+                                            class="sort-arrow"></span></th>
+                                    <th>ประเภท</th>
+                                    <th class="sortable" data-sort="invoice_date">วันที่ <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="customer_code">รหัสลูกค้า <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="customer_name">ชื่อลูกค้า <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="subtotal">ยอดรวม <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="text-right">ภาษี</th>
+                                    <th class="sortable text-right" data-sort="grand_total">ยอดสุทธิ <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="text-right">รายการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="invoice-list">
+                                <tr>
+                                    <td colspan="9" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">กำลังโหลดใบกำกับภาษี...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-controls">
+                        <button id="inv-btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="inv-page-numbers"></div>
+                        <button id="inv-btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- INVOICE DETAIL MODE (hidden by default) -->
+                <section id="invoice-detail-panel" class="hidden">
+                    <button id="inv-back-btn" class="btn btn-outline" style="margin-bottom: 1rem;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                            fill="none">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                        กลับไปรายการ
+                    </button>
+
+                    <!-- Invoice info card -->
+                    <div id="invoice-info-card" class="card glass" style="padding: 1.5rem; margin-bottom: 1rem;">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <!-- Line items table -->
+                    <div class="results-panel card glass">
+                        <div class="table-header">
+                            <h2>รายการสินค้า <span id="inv-detail-item-count" class="badge">--</span></h2>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>รหัสสินค้า</th>
+                                        <th>ชื่อสินค้า</th>
+                                        <th>คลัง</th>
+                                        <th class="text-right">จำนวน</th>
+                                        <th class="text-right">ราคา/หน่วย</th>
+                                        <th class="text-right">รวม</th>
+                                        <th>พนักงานขาย</th>
+                                        <th>เอกสาร OR</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inv-detail-items-list">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+            </div> <!-- End Invoice View -->
+        </main>
+    </div>
+
+    <!-- Modal for Product Details -->
+    <div id="product-modal" class="modal-overlay hidden">
+        <div class="modal card glass-dark">
+            <button id="close-modal" class="btn-close">
+                <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+
+            <!-- Modal Navigation (Prev / Next product) -->
+            <div id="modal-nav-controls" class="modal-nav-controls hidden">
+                <button id="modal-prev-btn" class="btn-nav" title="Previous product (↑)">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5"
+                        fill="none">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                </button>
+                <span id="modal-nav-indicator" class="nav-indicator">-</span>
+                <button id="modal-next-btn" class="btn-nav" title="Next product (↓)">
+                    <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5"
+                        fill="none">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <!-- TOP ROW: Gallery (compact) + Product Info -->
+                <div class="modal-top-row">
+                    <!-- Left: Compact Image Gallery -->
+                    <div class="modal-gallery">
+                        <div class="main-image-container">
+                            <img id="modal-main-image" src="" alt="Product Image">
+                            <button id="main-image-trash-btn" class="main-image-trash-btn hidden" title="ซ่อนรูปภาพนี้ / Hide this image">
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="thumbnail-strip" id="modal-thumbnails">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Product Details -->
+                    <div class="modal-details">
+                        <div class="sku-badge" id="modal-suffix-label">Genuine</div>
+                        <div
+                            style="display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.1rem;">
+                            <h2 id="modal-part-code" class="part-code" style="margin: 0;">--</h2>
+                            <h2 id="modal-name-thai" class="name-thai"
+                                style="margin: 0; font-weight: 500; color: #ffffff;">--</h2>
+                        </div>
+                        <h3 id="modal-name-eng" class="name-eng" style="margin-top: 0;">--</h3>
+
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <span class="label">Brand</span>
+                                <span class="value" id="modal-brand">--</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Size/Spec</span>
+                                <span class="value" id="modal-size">--</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Quantity</span>
+                                <span class="value qty-value" id="modal-qty">--</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">Sale Price</span>
+                                <span class="value price-value" id="modal-price">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Sales by Year Summary (compact, right after specs) -->
+                        <div id="modal-sales-by-year" class="sales-by-year-section hidden"
+                            style="margin-top: 0.2rem; padding-left: 0; padding-right: 0;">
+                            <h3
+                                style="margin-bottom: 0.25rem; color: var(--text-secondary); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                                จำนวนจ่ายออกรายปี (Annual Output)</h3>
+                            <div id="sales-by-year-grid" class="sales-by-year-grid">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Possible Titles (hidden for now) -->
+                        <div class="titles-section hidden" style="margin-top: 0.5rem;">
+                            <h3
+                                style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                                Possible Titles</h3>
+                            <div id="modal-possible-titles" style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+                                <!-- Titles will be injected here -->
+                            </div>
+                        </div>
+
+                        <!-- Reporting Section -->
+                        <div class="report-section"
+                            style="margin-top: 0.3rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 0.3rem;">
+                            <button id="btn-report-issue" class="btn btn-outline"
+                                style="width: 100%; border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; font-size: 0.9rem;">
+                                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                    fill="none" style="margin-right:0.5rem">
+                                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                    <line x1="4" y1="22" x2="4" y2="15"></line>
+                                </svg>
+                                รายงานของไม่ตรงหน้าเครื่อง
+                            </button>
+
+                            <div id="report-dialog" class="hidden"
+                                style="margin-top: 1rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: var(--radius-md);">
+                                <h4 style="margin-bottom: 1rem; color: var(--text-primary); font-size: 0.95rem;">Select
+                                    Issue Type</h4>
+
+                                <div class="radio-group"
+                                    style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem;">
+                                    <label
+                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                                        <input type="radio" name="flag_type" value="out_of_stock"
+                                            style="margin-top:0.25rem;">
+                                        <div>
+                                            <span style="display: block; font-weight: 500;">สินค้าหมด
+                                                (ระบบยังแสดง)</span>
+                                            <span style="font-size: 0.8em; color: var(--text-secondary);">System shows
+                                                stock, but real stock is empty</span>
+                                        </div>
+                                    </label>
+                                    <label
+                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                                        <input type="radio" name="flag_type" value="less_than"
+                                            style="margin-top:0.25rem;">
+                                        <div>
+                                            <span
+                                                style="display: block; font-weight: 500;">สินค้าจริงน้อยกว่าระบบ</span>
+                                            <span style="font-size: 0.8em; color: var(--text-secondary);">Real stock is
+                                                less
+                                                than system shows</span>
+                                        </div>
+                                    </label>
+                                    <label
+                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                                        <input type="radio" name="flag_type" value="more_than"
+                                            style="margin-top:0.25rem;">
+                                        <div>
+                                            <span style="display: block; font-weight: 500;">สินค้าจริงมากกว่าระบบ</span>
+                                            <span style="font-size: 0.8em; color: var(--text-secondary);">Real stock is
+                                                more
+                                                than system shows</span>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                <div style="margin-bottom: 1rem;">
+                                    <label for="report-note"
+                                        style="display: block; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">Optional
+                                        Note:</label>
+                                    <textarea id="report-note" rows="2" class="select-css"
+                                        style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2);"></textarea>
+                                </div>
+
+                                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                    <button id="btn-cancel-report" class="btn btn-outline"
+                                        style="padding: 0.5rem 1rem;">Cancel</button>
+                                    <button id="btn-submit-report" class="btn btn-primary"
+                                        style="padding: 0.5rem 1rem; background: #ef4444; border:none; color:white;">Submit
+                                        Flag</button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Stock History (hidden) -->
+                <div class="history-section hidden">
+                    <h3
+                        style="margin-top: 1.5rem; margin-bottom: 0.75rem; color: var(--text-secondary); font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                        Stock History</h3>
+                    <div id="modal-history" class="history-table-container">
+                        <p class="text-muted">Loading history...</p>
+                    </div>
+                </div>
+
+
+                <!-- BOTTOM ROW: Chart (left) + Archived History Table (right) -->
+                <div class="modal-bottom-row">
+                    <div class="modal-bottom-left">
+                        <h3
+                            style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                            ประวัติเคลื่อนไหว</h3>
+                        <div class="chart-container" style="position: relative; width: 100%; flex: 1;">
+                            <canvas id="archived-history-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="modal-bottom-right">
+                        <h3
+                            style="margin-bottom: 0.5rem; color: var(--text-secondary); font-size: 1.2rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                            รายการเคลื่อนไหว</h3>
+                        <div id="modal-archived-history" class="history-table-container">
+                            <p class="text-muted">กำลังโหลดประวัติเคลื่อนไหว...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import CSV Modal -->
+    <div id="import-csv-modal" class="modal-overlay hidden">
+        <div class="import-csv-dialog card glass-dark" style="max-width: 560px; width: 90%;">
+            <button id="import-csv-close" class="btn-close">
+                <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+            <div class="modal-body" style="padding: 1.5rem;">
+                <h2 style="margin-bottom: 0.25rem; font-size: 1.3rem;">📂 Import CSV Files</h2>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1.25rem;">
+                    Paste a folder path containing CSV files from extraction scripts.<br>
+                    Files will be copied and caches reloaded — no server restart needed.
+                </p>
+
+                <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                    <input type="text" id="import-csv-path" class="select-css"
+                        placeholder="e.g. C:\Users\Jan\Documents\CW\server output\09-03-26"
+                        style="flex: 1; font-family: monospace; font-size: 0.85rem; padding: 0.6rem 0.75rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: var(--radius-md); color: var(--text-primary);">
+                    <button id="import-csv-go" class="btn btn-outline"
+                        style="border-color: rgba(34,197,94,0.5); color: #86efac; padding: 0.6rem 1.25rem; white-space: nowrap;">
+                        Import
+                    </button>
+                </div>
+
+                <div id="import-csv-status" class="hidden"
+                    style="padding: 1rem; border-radius: var(--radius-md); font-size: 0.85rem; line-height: 1.6;">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto-Sync Status Bar (floating at bottom) -->
+    <div id="sync-status-bar" class="sync-status-bar">
+        <div class="sync-status-inner">
+            <div class="sync-indicator" id="sync-indicator">
+                <span class="sync-dot idle" id="sync-dot"></span>
+                <span class="sync-label" id="sync-label">Auto-Sync</span>
+            </div>
+            <div class="sync-items" id="sync-items">
+                <div class="sync-item" data-source="master">
+                    <label class="sync-toggle" title="Toggle auto-sync for Master">
+                        <input type="checkbox" id="sync-toggle-master" data-source="master">
+                        <span class="sync-toggle-slider"></span>
+                    </label>
+                    <span class="sync-item-dot idle" id="sync-dot-master"></span>
+                    <span class="sync-item-label">Master</span>
+                </div>
+                <div class="sync-item" data-source="ledger">
+                    <label class="sync-toggle" title="Toggle auto-sync for Ledger">
+                        <input type="checkbox" id="sync-toggle-ledger" data-source="ledger">
+                        <span class="sync-toggle-slider"></span>
+                    </label>
+                    <span class="sync-item-dot idle" id="sync-dot-ledger"></span>
+                    <span class="sync-item-label">Ledger</span>
+                </div>
+                <div class="sync-item" data-source="customer">
+                    <label class="sync-toggle" title="Toggle auto-sync for Customer">
+                        <input type="checkbox" id="sync-toggle-customer" data-source="customer">
+                        <span class="sync-toggle-slider"></span>
+                    </label>
+                    <span class="sync-item-dot idle" id="sync-dot-customer"></span>
+                    <span class="sync-item-label">Customer</span>
+                </div>
+                <div class="sync-item" data-source="invoice">
+                    <label class="sync-toggle" title="Toggle auto-sync for Invoice">
+                        <input type="checkbox" id="sync-toggle-invoice" data-source="invoice">
+                        <span class="sync-toggle-slider"></span>
+                    </label>
+                    <span class="sync-item-dot idle" id="sync-dot-invoice"></span>
+                    <span class="sync-item-label">Invoice</span>
+                </div>
+            </div>
+            <span class="sync-progress-text" id="sync-progress-text"></span>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
