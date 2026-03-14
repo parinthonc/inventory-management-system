@@ -2176,7 +2176,7 @@ async function fetchAndRenderArchivedHistory(sku) {
                 <td style="white-space:nowrap;">${formattedDate}</td>
                 <td>${h.doc_ref || '-'}</td>
                 <td>${getCategoryThai(h.category_name)}</td>
-                <td>${h.from_to ? `<a href="#" class="from-to-link" data-customer-code="${escapeHtml(h.from_to)}" style="color: #60a5fa; text-decoration: none; cursor: pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${escapeHtml(h.from_to)}</a>` : '-'}</td>
+                <td>${h.from_to ? `<span class="from-to-hover-wrap"><a href="#" class="from-to-link" data-customer-code="${escapeHtml(h.from_to)}" style="color: #60a5fa; text-decoration: none; cursor: pointer;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">${escapeHtml(h.from_to)}</a>${h.from_to_name ? `<span class="from-to-bubble">${escapeHtml(h.from_to_name)}</span>` : ''}</span>` : '-'}</td>
                 <td class="text-right">${h.unit_price ? formatPrice(h.unit_price) : '-'}</td>
                 <td class="text-right">${inHtml}</td>
                 <td class="text-right">${outHtml}</td>

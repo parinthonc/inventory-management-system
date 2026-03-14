@@ -1490,7 +1490,16 @@ def get_archived_history(sku):
 
     history = archived_history_cache.get((part_code, suffix), [])
 
-    return jsonify(history)
+    # Enrich each entry with customer name from customer_master_cache
+    enriched = []
+    for h in history:
+        entry = dict(h)
+        from_to_code = h.get('from_to', '').strip()
+        if from_to_code and from_to_code in customer_master_cache:
+            entry['from_to_name'] = customer_master_cache[from_to_code].get('customer_name', '')
+        enriched.append(entry)
+
+    return jsonify(enriched)
 
 @app.route('/api/customer-activity/<customer_id>')
 def get_customer_activity(customer_id):
