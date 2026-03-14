@@ -413,6 +413,9 @@ async function init() {
     // Load sync changes from server (for users arriving after a sync completed)
     await loadSyncChanges();
 
+    // Fetch flags count for tab badge (lightweight — just first page)
+    fetchFlagsCount();
+
     // Set initial hash (replaceState so we don't add an extra entry)
     if (!location.hash) {
         navReplace('products');
@@ -1144,6 +1147,12 @@ function renderProducts() {
             tr.classList.add('sync-new-row');
         }
 
+        // Highlight row if product is flagged
+        if (p.flag_type) {
+            tr.classList.add('flagged-row');
+            tr.dataset.flagType = p.flag_type;
+        }
+
         const suffixClass = `type-${p.suffix.toLowerCase()}`;
 
         // Thumbnail content
@@ -1185,21 +1194,32 @@ function renderProducts() {
             }
         }
 
-        // Flagged styling indicator
+        // Flagged styling indicator — color-coded badge with Thai label
+        const flagTypeLabels = {
+            'out_of_stock': '⚠ สินค้าหมด',
+            'less_than': '⚠ น้อยกว่าระบบ',
+            'more_than': 'ℹ มากกว่าระบบ'
+        };
         const flagIndicator = p.flag_type
-            ? `<div title="Flagged: ${p.flag_type}" style="position:absolute; top:4px; right:4px; font-size:14px;">🚩</div>`
+            ? `<div class="flag-indicator ${p.flag_type}">
+                 <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none">
+                   <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                   <line x1="4" y1="22" x2="4" y2="15"></line>
+                 </svg>
+                 ${flagTypeLabels[p.flag_type] || p.flag_type}
+               </div>`
             : '';
 
         tr.innerHTML = `
             <td>
                 <div class="thumb-cell">
                     ${thumbContent}
-                    ${flagIndicator}
                     ${p.image_count > 1 ? `<span style="position:absolute; background:rgba(0,0,0,0.7); color:white; font-size:10px; padding:2px 4px; border-radius:4px; right:4px; bottom:4px;">+${p.image_count - 1}</span>` : ''}
                 </div>
             </td>
             <td>
                 <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">ใหม่</span>' : ''}</div>
+                ${flagIndicator}
             </td>
             <td>
                 <div class="suffix-indicator" title="${p.suffix_label}">
@@ -1583,6 +1603,32 @@ function highlightSearch(text, searchTerm) {
 }
 
 async function openModalInternal(product) {
+    // ── Flag warning banner at top of modal ─────────────────────────────
+    const existingBanner = document.querySelector('.modal-flag-banner');
+    if (existingBanner) existingBanner.remove();
+
+    if (product.flag_type) {
+        const flagLabels = {
+            'out_of_stock': '⚠️ สินค้าหมด (ระบบยังแสดง)',
+            'less_than': '⚠️ สินค้าจริงน้อยกว่าระบบ',
+            'more_than': 'ℹ️ สินค้าจริงมากกว่าระบบ'
+        };
+        const flagNote = product.flag_note ? `<div class="modal-flag-banner-note">${escapeHtml(product.flag_note)}</div>` : '';
+        const flagDate = product.flagged_at ? `<div class="modal-flag-banner-date">Flagged: ${formatBuddhistDate(product.flagged_at, true)}</div>` : '';
+        const banner = document.createElement('div');
+        banner.className = `modal-flag-banner ${product.flag_type}`;
+        banner.innerHTML = `
+            <div class="modal-flag-banner-icon">🚩</div>
+            <div class="modal-flag-banner-text">
+                <div class="modal-flag-banner-label">${flagLabels[product.flag_type] || product.flag_type}</div>
+                ${flagNote}
+                ${flagDate}
+            </div>
+        `;
+        const modalBody = els.modal.querySelector('.modal-body');
+        modalBody.insertBefore(banner, modalBody.firstChild);
+    }
+
     // Populate details
     els.modalSuffixLabel.textContent = product.suffix || '-'; // Display the short code like G, C, R, L
     els.modalSuffixLabel.className = `sku-badge type-${(product.suffix || '').toLowerCase()}`;
@@ -2452,6 +2498,7 @@ async function fetchFlags() {
         renderFlags();
         updateFlagsPaginationInfo();
         renderFlagsPaginationControls();
+        updateFlagsTabBadge(data.total);
     } catch (err) {
         console.error("Error fetching flags:", err);
         els.flagsList.innerHTML = `
@@ -2587,6 +2634,35 @@ function addFlagsPageButton(pageNum) {
         };
     }
     els.flagsPageNumbers.appendChild(btn);
+}
+
+// ─── Flags Tab Badge ──────────────────────────────────────────────────────
+/** Update (or remove) the count badge on the flags tab button. */
+function updateFlagsTabBadge(count) {
+    const tabBtn = els.tabBtnFlags;
+    let badge = tabBtn.querySelector('.tab-flag-count');
+    if (count > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'tab-flag-count';
+            tabBtn.appendChild(badge);
+        }
+        badge.textContent = count;
+    } else if (badge) {
+        badge.remove();
+    }
+}
+
+/** Lightweight fetch to get the flags count for the tab badge on page load. */
+async function fetchFlagsCount() {
+    try {
+        const res = await fetch('/api/flags?page=1&per_page=1');
+        const data = await res.json();
+        updateFlagsTabBadge(data.total || 0);
+    } catch (err) {
+        // Non-critical — badge just won't show
+        console.log('[Flags] Could not fetch flag count for tab badge');
+    }
 }
 
 // Start app

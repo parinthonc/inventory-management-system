@@ -2178,3 +2178,193 @@ h4 {
         transform: translateX(-50%) translateY(0);
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FLAGGED PRODUCT WARNING STYLES
+   Prominent visual cues for products that have been flagged with stock issues.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Product List Row Highlighting ───────────────────────────────────────── */
+/* Flagged rows get a colored left border and tinted background */
+
+@keyframes flag-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.7; }
+}
+
+.data-table tbody tr.flagged-row {
+    border-left: 4px solid #ef4444;
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+.data-table tbody tr.flagged-row[data-flag-type="out_of_stock"] {
+    border-left-color: #ef4444;
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+.data-table tbody tr.flagged-row[data-flag-type="less_than"] {
+    border-left-color: #f59e0b;
+    background-color: rgba(245, 158, 11, 0.08);
+}
+
+.data-table tbody tr.flagged-row[data-flag-type="more_than"] {
+    border-left-color: #10b981;
+    background-color: rgba(16, 185, 129, 0.08);
+}
+
+.data-table tbody tr.flagged-row:hover {
+    background-color: rgba(239, 68, 68, 0.14);
+}
+
+.data-table tbody tr.flagged-row[data-flag-type="less_than"]:hover {
+    background-color: rgba(245, 158, 11, 0.14);
+}
+
+.data-table tbody tr.flagged-row[data-flag-type="more_than"]:hover {
+    background-color: rgba(16, 185, 129, 0.14);
+}
+
+/* ─── Flag Indicator Badge (in product list) ─────────────────────────────── */
+/* Replaces the old tiny 🚩 emoji with a visible, color-coded badge */
+
+.flag-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-top: 0.3rem;
+    line-height: 1.3;
+    animation: flag-pulse 2.5s ease-in-out infinite;
+}
+
+.flag-indicator.out_of_stock {
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.flag-indicator.less_than {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.flag-indicator.more_than {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.flag-indicator svg {
+    flex-shrink: 0;
+}
+
+/* ─── Modal Flag Banner ──────────────────────────────────────────────────── */
+/* Prominent alert at top of modal when viewing a flagged product */
+
+.modal-flag-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 0.75rem;
+    animation: flagBannerSlideIn 0.35s ease-out;
+}
+
+@keyframes flagBannerSlideIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.modal-flag-banner.out_of_stock {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+}
+
+.modal-flag-banner.less_than {
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+    color: #fcd34d;
+}
+
+.modal-flag-banner.more_than {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    color: #6ee7b7;
+}
+
+.modal-flag-banner-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 1.1rem;
+}
+
+.modal-flag-banner.out_of_stock .modal-flag-banner-icon {
+    background: rgba(239, 68, 68, 0.3);
+}
+
+.modal-flag-banner.less_than .modal-flag-banner-icon {
+    background: rgba(245, 158, 11, 0.3);
+}
+
+.modal-flag-banner.more_than .modal-flag-banner-icon {
+    background: rgba(16, 185, 129, 0.3);
+}
+
+.modal-flag-banner-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.modal-flag-banner-label {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.modal-flag-banner-note {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+.modal-flag-banner-date {
+    font-size: 0.7rem;
+    opacity: 0.6;
+}
+
+/* ─── Flags Tab Count Badge ──────────────────────────────────────────────── */
+/* Notification badge on the flags tab button */
+
+.tab-btn {
+    position: relative;
+}
+
+.tab-flag-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    background: #ef4444;
+    color: #fff;
+    margin-left: 0.4rem;
+    vertical-align: middle;
+    animation: flag-pulse 2.5s ease-in-out infinite;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
