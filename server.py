@@ -13,6 +13,17 @@ import threading
 import time
 import queue
 from collections import defaultdict
+import builtins
+
+# Override built-in print to prepend a timestamp to every console message
+_original_print = builtins.print
+
+def _timestamped_print(*args, **kwargs):
+    """Wrapper around print() that prefixes output with [HH:MM:SS] timestamp."""
+    timestamp = datetime.datetime.now().strftime('[%H:%M:%S]')
+    _original_print(timestamp, *args, **kwargs)
+
+builtins.print = _timestamped_print
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
