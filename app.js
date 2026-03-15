@@ -437,7 +437,10 @@ function handleNavigation() {
 }
 
 // Initialize app
+let _initialized = false;
 async function init() {
+    if (_initialized) return;
+    _initialized = true;
     setupEventListeners();
     await fetchStats();
     await fetchFilters();
@@ -2499,14 +2502,14 @@ function renderFlags() {
 
         tr.innerHTML = `
             <td><div class="thumb-cell">${thumbContent}</div></td>
-            <td><div style="font-family: monospace; font-size: 1.05rem;">${f.part_code}</div></td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(f.part_code)}</div></td>
             <td>
                 <div class="desc-cell">
-                    <div class="desc-eng">${f.name_eng || '-'}</div>
-                    <div class="desc-thai">${f.name_thai || '-'}</div>
+                    <div class="desc-eng">${escapeHtml(f.name_eng || '-')}</div>
+                    <div class="desc-thai">${escapeHtml(f.name_thai || '-')}</div>
                 </div>
             </td>
-            <td><span class="brand-badge">${f.brand || '-'}</span></td>
+            <td><span class="brand-badge">${escapeHtml(f.brand || '-')}</span></td>
             <td class="text-right">
                 <span class="qty-badge">${formatNumber(f.system_qty)}</span>
             </td>
@@ -2699,9 +2702,9 @@ function renderCustomers() {
         const creditFormatted = creditDays > 0 ? `${creditDays}` : '<span class="text-muted">-</span>';
 
         tr.innerHTML = `
-            <td><div style="font-family: monospace; font-size: 1.05rem;">${c.customer_code}</div></td>
-            <td>${c.customer_name || '-'}</td>
-            <td>${c.phone || '<span class="text-muted">-</span>'}</td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(c.customer_code)}</div></td>
+            <td>${escapeHtml(c.customer_name || '-')}</td>
+            <td>${c.phone ? escapeHtml(c.phone) : '<span class="text-muted">-</span>'}</td>
             <td class="text-right">${creditFormatted}</td>
             <td>${statusBadge}</td>
             <td class="text-right"><span class="qty-badge">${formatNumber(c.txn_count || 0)}</span></td>
@@ -2959,11 +2962,11 @@ function renderInvoices() {
         const voidIndicator = inv.void_date ? ` <span style="color: #ef4444; font-size: 0.8em;">(ยกเลิก)</span>` : '';
 
         tr.innerHTML = `
-            <td><div style="font-family: monospace; font-size: 1.05rem;">${inv.invoice_number}${voidIndicator}</div></td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(inv.invoice_number)}${voidIndicator}</div></td>
             <td>${docTypeBadge}</td>
             <td style="white-space:nowrap;">${formatBuddhistDate(inv.invoice_date)}</td>
-            <td><div style="font-family: monospace;">${inv.customer_code || '-'}</div></td>
-            <td>${inv.customer_name || '-'}</td>
+            <td><div style="font-family: monospace;">${escapeHtml(inv.customer_code || '-')}</div></td>
+            <td>${escapeHtml(inv.customer_name || '-')}</td>
             <td class="text-right">${inv.subtotal ? formatPrice(inv.subtotal) : '-'}</td>
             <td class="text-right">${inv.vat_amount ? formatPrice(inv.vat_amount) : '-'}</td>
             <td class="text-right"><strong>${inv.grand_total ? formatPrice(inv.grand_total) : '-'}</strong></td>
@@ -3812,6 +3815,7 @@ function _setupLoginHandlers() {
 /**
  * Show user badge, admin button, and logout button in the navbar.
  */
+let _userUIBound = false;
 function _showUserUI() {
     if (!_currentUser) return;
 
@@ -3824,19 +3828,22 @@ function _showUserUI() {
     badge.classList.remove('hidden');
 
     // Show admin panel button only for admin users
-    if (_currentUser.role === 'admin') {
+    if (_currentUser.role === 'admin' && !_userUIBound) {
         adminBtn.classList.remove('hidden');
         adminBtn.addEventListener('click', _openAdminPanel);
     }
 
     // Logout button
-    logoutBtn.classList.remove('hidden');
-    logoutBtn.addEventListener('click', async () => {
-        try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-        } catch (e) { /* ignore */ }
-        location.reload();
-    });
+    if (!_userUIBound) {
+        logoutBtn.classList.remove('hidden');
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await fetch('/api/auth/logout', { method: 'POST' });
+            } catch (e) { /* ignore */ }
+            location.reload();
+        });
+    }
+    _userUIBound = true;
 }
 
 
@@ -3946,14 +3953,14 @@ async function _loadAdminUsers() {
         }
         tbody.innerHTML = users.map(u => `
             <tr>
-                <td><strong>${u.username}</strong></td>
-                <td><span class="badge">${u.role}</span></td>
-                <td style="font-size: 0.85rem; color: var(--text-secondary);">${u.created_at || '-'}</td>
+                <td><strong>${escapeHtml(u.username)}</strong></td>
+                <td><span class="badge">${escapeHtml(u.role)}</span></td>
+                <td style="font-size: 0.85rem; color: var(--text-secondary);">${escapeHtml(u.created_at || '-')}</td>
                 <td class="text-right">
-                    <button class="btn btn-outline btn-compact" onclick="_adminResetPassword(${u.id}, '${u.username}')" title="Reset password" style="margin-right:0.25rem;">
+                    <button class="btn btn-outline btn-compact" onclick="_adminResetPassword(${u.id}, '${escapeHtml(u.username)}')" title="Reset password" style="margin-right:0.25rem;">
                         Reset PW
                     </button>
-                    <button class="btn btn-outline btn-compact" onclick="_adminDeleteUser(${u.id}, '${u.username}')" title="Delete user" style="border-color: rgba(239,68,68,0.4); color: #fca5a5;">
+                    <button class="btn btn-outline btn-compact" onclick="_adminDeleteUser(${u.id}, '${escapeHtml(u.username)}')" title="Delete user" style="border-color: rgba(239,68,68,0.4); color: #fca5a5;">
                         Delete
                     </button>
                 </td>

@@ -1323,7 +1323,7 @@ def get_products():
         sort_by = request.args.get('sort', 'last_sold_date')
         sort_dir = request.args.get('dir', 'desc').lower()
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 50))
+        per_page = max(1, int(request.args.get('per_page', 50)))
 
         valid_sorts = ['part_code', 'name_eng', 'name_thai', 'brand', 'qty', 'sale_price', 'suffix', 'size', 'locations', 'last_sold_date', 'amount_sold', 'relevance']
         if sort_by not in valid_sorts:
@@ -1428,17 +1428,22 @@ def get_products():
         if archived_history_cache is None:
             load_archived_history_cache()
 
+        # Snapshot cache refs under lock for thread safety during background sync
+        with _cache_lock:
+            _qty_snap = archived_qty_cache
+            _hist_snap = archived_history_cache
+
         # Compute days_ago on the server so clients with wrong PC clocks still get correct values
         server_today = datetime.date.today()
         server_today_str = server_today.strftime('%Y-%m-%d')
 
         for p in products:
             key = (p.get('part_code', ''), p.get('suffix', ''))
-            p['on_hand_qty'] = archived_qty_cache.get(key, p['qty'])
+            p['on_hand_qty'] = _qty_snap.get(key, p['qty'])
 
             # Compute amount_sold from CSV cache when Activity filter is active
             if active_days and active_days.isdigit():
-                entries = archived_history_cache.get(key, [])
+                entries = _hist_snap.get(key, [])
                 total_out = sum(e['qty_out'] for e in entries if e['date'] >= threshold_date)
                 p['amount_sold'] = total_out
 
@@ -1470,16 +1475,18 @@ def get_product_detail(sku):
     """Return a single product's full data by SKU. Used when the page is refreshed
     while a product modal is open and the product data isn't available in the frontend state."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT p.*, p.csv_last_sold_date as last_sold_date,
-               f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
-        FROM products p
-        LEFT JOIN stock_flags f ON p.sku = f.sku
-        WHERE p.sku = ?
-    ''', (sku,))
-    row = cursor.fetchone()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT p.*, p.csv_last_sold_date as last_sold_date,
+                   f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
+            FROM products p
+            LEFT JOIN stock_flags f ON p.sku = f.sku
+            WHERE p.sku = ?
+        ''', (sku,))
+        row = cursor.fetchone()
+    finally:
+        conn.close()
 
     if not row:
         return jsonify({'error': 'Product not found'}), 404
@@ -1491,8 +1498,11 @@ def get_product_detail(sku):
     if archived_history_cache is None:
         load_archived_history_cache()
 
+    with _cache_lock:
+        _qty_snap = archived_qty_cache
+
     key = (product.get('part_code', ''), product.get('suffix', ''))
-    product['on_hand_qty'] = archived_qty_cache.get(key, product['qty'])
+    product['on_hand_qty'] = _qty_snap.get(key, product['qty'])
 
     # Compute days_ago server-side
     server_today = datetime.date.today()
@@ -1790,6 +1800,10 @@ def load_archived_history_cache():
 
 def _sync_csv_data_to_db():
     """Write CSV-sourced on_hand_qty and last_sold_date into the products table."""
+    # Snapshot cache refs under lock for thread safety
+    with _cache_lock:
+        _qty_snap = dict(archived_qty_cache)
+        _sale_snap = dict(archived_last_sale_cache)
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -1810,20 +1824,20 @@ def _sync_csv_data_to_db():
         # Clear old values (preserve csv_last_sold_detected_at — it accumulates through the day)
         cursor.execute('UPDATE products SET csv_on_hand_qty = NULL, csv_last_sold_date = NULL')
 
-        # Batch update from caches
-        for (sku, sku_type), qty in archived_qty_cache.items():
+        # Batch update from snapshots
+        for (sku, sku_type), qty in _qty_snap.items():
             cursor.execute(
                 'UPDATE products SET csv_on_hand_qty = ? WHERE part_code = ? AND suffix = ?',
                 (qty, sku, sku_type)
             )
-        for (sku, sku_type), sale_date in archived_last_sale_cache.items():
+        for (sku, sku_type), sale_date in _sale_snap.items():
             cursor.execute(
                 'UPDATE products SET csv_last_sold_date = ? WHERE part_code = ? AND suffix = ?',
                 (sale_date, sku, sku_type)
             )
         conn.commit()
         conn.close()
-        print(f"Synced CSV data to products table: {len(archived_qty_cache)} qty values, {len(archived_last_sale_cache)} sale dates.")
+        print(f"Synced CSV data to products table: {len(_qty_snap)} qty values, {len(_sale_snap)} sale dates.")
     except Exception as e:
         print(f"Error syncing CSV data to DB: {e}")
 
@@ -1845,7 +1859,11 @@ def get_archived_history(sku):
     if archived_history_cache is None:
         load_archived_history_cache()
 
-    history = archived_history_cache.get((part_code, suffix), [])
+    # Snapshot cache ref under lock for thread safety
+    with _cache_lock:
+        _hist_snap = archived_history_cache
+
+    history = _hist_snap.get((part_code, suffix), [])
 
     # Enrich each entry with customer name from customer_master_cache
     enriched = []
@@ -1881,7 +1899,7 @@ def get_customers():
 
     search = request.args.get('search', '').strip().lower()
     page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    per_page = max(1, int(request.args.get('per_page', 50)))
 
     # Build filtered list
     all_customers = list(customer_master_cache.values())
@@ -2047,7 +2065,7 @@ def get_invoices():
     search = request.args.get('search', '').strip().lower()
     doc_type = request.args.get('doc_type', '').strip().upper()  # IV, OR, or empty=all
     page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    per_page = max(1, int(request.args.get('per_page', 50)))
     sort_by = request.args.get('sort', 'invoice_date').strip()
     sort_dir = request.args.get('dir', 'desc').lower()
 
@@ -2293,14 +2311,17 @@ all_ledger_moves = []   # populated by _build_moves_list()
 def _build_moves_list():
     """Build a flat list of all moves from the archived_history_cache for the moves tab."""
     global all_ledger_moves
-    if archived_history_cache is None:
+    # Snapshot cache ref under lock
+    with _cache_lock:
+        _hist_snap = archived_history_cache
+    if _hist_snap is None:
         return
-    all_ledger_moves = []
-    for (part_code, sku_type), entries in archived_history_cache.items():
+    new_moves = []
+    for (part_code, sku_type), entries in _hist_snap.items():
         for entry in entries:
             if entry['qty_in'] == 0 and entry['qty_out'] == 0:
                 continue  # Skip zero-change rows
-            all_ledger_moves.append({
+            new_moves.append({
                 'part_code': part_code,
                 'sku_type': sku_type,
                 'date': entry['date'],
@@ -2312,7 +2333,9 @@ def _build_moves_list():
                 'running_balance': entry['running_balance'],
             })
     # Sort by date descending by default
-    all_ledger_moves.sort(key=lambda x: x['date'], reverse=True)
+    new_moves.sort(key=lambda x: x['date'], reverse=True)
+    # Atomic swap — readers always see a complete list
+    all_ledger_moves = new_moves
     print(f"Built moves list: {len(all_ledger_moves)} move entries.")
 
 # ─── Sort helpers ────────────────────────────────────────────────────────────
@@ -2346,7 +2369,7 @@ def get_all_moves():
     sort_by = request.args.get('sort', '').strip()
     sort_dir = request.args.get('dir', 'desc').lower()
     page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    per_page = max(1, int(request.args.get('per_page', 50)))
 
     # Build a product lookup from DB for name/brand/thumbnail
     conn = get_db_connection()
@@ -2444,26 +2467,28 @@ def flag_product(sku):
         return jsonify({'error': 'Invalid or missing flag_type'}), 400
 
     conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Ensure product exists
-    cursor.execute('SELECT id FROM products WHERE sku = ?', (sku,))
-    if not cursor.fetchone():
-        conn.close()
-        return jsonify({'error': 'Product not found'}), 404
+    try:
+        cursor = conn.cursor()
+        
+        # Ensure product exists
+        cursor.execute('SELECT id FROM products WHERE sku = ?', (sku,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Product not found'}), 404
 
-    cursor.execute('''
-        INSERT INTO stock_flags (sku, flag_type, note, flagged_at, flagged_by)
-        VALUES (?, ?, ?, datetime('now', 'localtime'), ?)
-        ON CONFLICT(sku) DO UPDATE SET
-            flag_type = excluded.flag_type,
-            note = excluded.note,
-            flagged_at = datetime('now', 'localtime'),
-            flagged_by = excluded.flagged_by
-    ''', (sku, flag_type, note, flagged_by))
-    
-    conn.commit()
-    conn.close()
+        cursor.execute('''
+            INSERT INTO stock_flags (sku, flag_type, note, flagged_at, flagged_by)
+            VALUES (?, ?, ?, datetime('now', 'localtime'), ?)
+            ON CONFLICT(sku) DO UPDATE SET
+                flag_type = excluded.flag_type,
+                note = excluded.note,
+                flagged_at = datetime('now', 'localtime'),
+                flagged_by = excluded.flagged_by
+        ''', (sku, flag_type, note, flagged_by))
+        
+        conn.commit()
+    finally:
+        conn.close()
     print(f"[Flags] Product {sku} flagged as '{flag_type}' by {flagged_by}")
     return jsonify({'status': 'success', 'message': 'Product flagged'})
 
@@ -2485,7 +2510,7 @@ def get_flags():
     sort_by = request.args.get('sort', '').strip()
     sort_dir = request.args.get('dir', 'desc').lower()
     page = int(request.args.get('page', 1))
-    per_page = int(request.args.get('per_page', 50))
+    per_page = max(1, int(request.args.get('per_page', 50)))
 
     query_select = """
         SELECT f.id as flag_id, f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
