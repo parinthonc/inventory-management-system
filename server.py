@@ -73,9 +73,16 @@ def init_flags_table():
             flag_type TEXT NOT NULL,
             note TEXT DEFAULT '',
             flagged_at TEXT DEFAULT (datetime('now', 'localtime')),
+            flagged_by TEXT DEFAULT '',
             UNIQUE(sku)
         )
     ''')
+    # Migration: add flagged_by column if it doesn't exist yet
+    try:
+        cursor.execute("ALTER TABLE stock_flags ADD COLUMN flagged_by TEXT DEFAULT ''")
+        print('[Migration] Added flagged_by column to stock_flags')
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -1349,7 +1356,7 @@ def get_products():
             # Filter products that had sales within the threshold using CSV-sourced last_sold_date
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
             """
@@ -1365,7 +1372,7 @@ def get_products():
             # Default view: use CSV-sourced last_sold_date directly from products table
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
             """
@@ -1466,7 +1473,7 @@ def get_product_detail(sku):
     cursor = conn.cursor()
     cursor.execute('''
         SELECT p.*, p.csv_last_sold_date as last_sold_date,
-               f.flag_type, f.note as flag_note, f.flagged_at
+               f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
         FROM products p
         LEFT JOIN stock_flags f ON p.sku = f.sku
         WHERE p.sku = ?
@@ -2319,6 +2326,7 @@ def _flags_order(sort_by, sort_dir):
         'system_qty': 'p.qty',
         'flag_type': 'f.flag_type',
         'flagged_at': 'f.flagged_at',
+        'flagged_by': 'f.flagged_by',
     }
     d = 'DESC' if sort_dir == 'desc' else 'ASC'
     if sort_by in col_map:
@@ -2430,6 +2438,7 @@ def flag_product(sku):
     data = request.json or {}
     flag_type = data.get('flag_type')
     note = data.get('note', '')
+    flagged_by = session.get('user', '')
 
     if not flag_type or flag_type not in ['out_of_stock', 'less_than', 'more_than']:
         return jsonify({'error': 'Invalid or missing flag_type'}), 400
@@ -2444,25 +2453,30 @@ def flag_product(sku):
         return jsonify({'error': 'Product not found'}), 404
 
     cursor.execute('''
-        INSERT INTO stock_flags (sku, flag_type, note, flagged_at)
-        VALUES (?, ?, ?, datetime('now', 'localtime'))
+        INSERT INTO stock_flags (sku, flag_type, note, flagged_at, flagged_by)
+        VALUES (?, ?, ?, datetime('now', 'localtime'), ?)
         ON CONFLICT(sku) DO UPDATE SET
             flag_type = excluded.flag_type,
             note = excluded.note,
-            flagged_at = datetime('now', 'localtime')
-    ''', (sku, flag_type, note))
+            flagged_at = datetime('now', 'localtime'),
+            flagged_by = excluded.flagged_by
+    ''', (sku, flag_type, note, flagged_by))
     
     conn.commit()
     conn.close()
+    print(f"[Flags] Product {sku} flagged as '{flag_type}' by {flagged_by}")
     return jsonify({'status': 'success', 'message': 'Product flagged'})
 
 @app.route('/api/products/<sku>/flag', methods=['DELETE'])
+@admin_required
 def unflag_product(sku):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('DELETE FROM stock_flags WHERE sku = ?', (sku,))
     conn.commit()
     conn.close()
+    username = session.get('user', 'unknown')
+    print(f"[Flags] Product {sku} resolved (unflagged) by {username}")
     return jsonify({'status': 'success', 'message': 'Product unflagged'})
 
 @app.route('/api/flags')
@@ -2474,7 +2488,7 @@ def get_flags():
     per_page = int(request.args.get('per_page', 50))
 
     query_select = """
-        SELECT f.id as flag_id, f.flag_type, f.note as flag_note, f.flagged_at,
+        SELECT f.id as flag_id, f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
                p.*, p.qty as system_qty
         FROM stock_flags f
         JOIN products p ON f.sku = p.sku

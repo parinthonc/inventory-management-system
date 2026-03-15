@@ -736,6 +736,13 @@ function setupEventListeners() {
         const btn = e.target.closest('.unflag-btn');
         if (!btn) return;
         e.stopPropagation();
+
+        // Guard: only admins can resolve
+        if (!_currentUser || _currentUser.role !== 'admin') {
+            alert('เฉพาะ Admin เท่านั้นที่สามารถ Resolve ได้');
+            return;
+        }
+
         const sku = btn.dataset.sku;
         if (!confirm('ยืนยันการ Resolve รายการนี้?')) return;
         try {
@@ -744,6 +751,9 @@ function setupEventListeners() {
             if (res.ok) {
                 fetchFlags();
                 fetchProducts();
+            } else if (res.status === 403) {
+                alert('เฉพาะ Admin เท่านั้นที่สามารถ Resolve ได้');
+                btn.disabled = false;
             } else {
                 alert('Failed to unflag.');
                 btn.disabled = false;
@@ -2471,6 +2481,22 @@ function renderFlags() {
         // Parse date
         let dateStr = formatBuddhistDate(f.flagged_at, true);
 
+        // Reporter info
+        const reporterHtml = f.flagged_by
+            ? `<div style="margin-top: 4px; font-size: 0.8em; color: var(--text-secondary);">รายงานโดย: <strong>${escapeHtml(f.flagged_by)}</strong></div>`
+            : '';
+
+        // Only show Resolve button for admin users
+        const isAdmin = _currentUser && _currentUser.role === 'admin';
+        const resolveBtn = isAdmin
+            ? `<button class="btn btn-outline unflag-btn" data-sku="${f.sku}" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; display: inline-block; vertical-align: text-bottom;">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    Resolve
+                </button>`
+            : '';
+
         tr.innerHTML = `
             <td><div class="thumb-cell">${thumbContent}</div></td>
             <td><div style="font-family: monospace; font-size: 1.05rem;">${f.part_code}</div></td>
@@ -2488,14 +2514,12 @@ function renderFlags() {
                 <div><span class="badge" style="background: ${typeInfo.bg}; color: ${typeInfo.color}; border: 1px solid ${typeInfo.color}40;">${typeInfo.label}</span></div>
                 ${f.flag_note ? `<div style="margin-top: 4px; font-size: 0.85em; color: var(--text-secondary); max-width: 250px; white-space: normal; line-height: 1.3;">${escapeHtml(f.flag_note)}</div>` : ''}
             </td>
-            <td><span class="text-muted" style="font-size: 0.9em;">${dateStr}</span></td>
+            <td>
+                <span class="text-muted" style="font-size: 0.9em;">${dateStr}</span>
+                ${reporterHtml}
+            </td>
             <td class="text-right">
-                <button class="btn btn-outline unflag-btn" data-sku="${f.sku}" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;">
-                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; display: inline-block; vertical-align: text-bottom;">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                    Resolve
-                </button>
+                ${resolveBtn}
             </td>
         `;
 
