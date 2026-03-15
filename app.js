@@ -3853,6 +3853,7 @@ function _openAdminPanel() {
     const modal = document.getElementById('admin-modal');
     modal.classList.remove('hidden');
     _loadAdminUsers();
+    _loadBackupList();
     _setupAdminHandlers();
 
     // Close button
@@ -3939,6 +3940,27 @@ function _setupAdminHandlers() {
             msgDiv.classList.remove('hidden');
         }
     });
+
+    // ── Backup Handlers ──────────────────────────────────────────────────
+
+    // Create backup button
+    document.getElementById('backup-create-btn').addEventListener('click', _createBackup);
+
+    // Auto-backup toggle
+    document.getElementById('backup-auto-toggle').addEventListener('change', async (e) => {
+        const enabled = e.target.checked;
+        try {
+            await fetch('/api/admin/backup/schedule', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auto_backup: enabled })
+            });
+            _showBackupStatus(enabled ? 'Auto daily backup enabled' : 'Auto daily backup disabled', 'success');
+        } catch (err) {
+            _showBackupStatus('Failed to update setting', 'error');
+            e.target.checked = !enabled; // Revert toggle
+        }
+    });
 }
 
 
@@ -4003,5 +4025,130 @@ async function _adminResetPassword(userId, username) {
         }
     } catch (err) {
         alert('Connection error');
+    }
+}
+
+
+// ─── Backup Management Functions ────────────────────────────────────────────
+
+function _showBackupStatus(message, type) {
+    const el = document.getElementById('backup-status-msg');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.remove('hidden');
+    el.style.background = type === 'error' ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)';
+    el.style.color = type === 'error' ? '#fca5a5' : '#6ee7b7';
+    // Auto-hide after 5s
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+async function _loadBackupList() {
+    const tbody = document.getElementById('backup-list');
+    const autoToggle = document.getElementById('backup-auto-toggle');
+    if (!tbody) return;
+
+    try {
+        const res = await fetch('/api/admin/backups');
+        const data = await res.json();
+
+        // Set auto-backup toggle state
+        if (autoToggle) {
+            autoToggle.checked = data.auto_backup;
+        }
+
+        const backups = data.backups || [];
+        if (backups.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center" style="padding: 1rem; color: var(--text-secondary);">No backups yet. Click "Create Backup Now" to create one.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = backups.map(b => {
+            const safetyBadge = b.is_safety ? ' <span style="font-size:0.7rem; padding:0.1rem 0.3rem; background:rgba(251,191,36,0.2); color:#fbbf24; border-radius:3px;">safety</span>' : '';
+            return `<tr>
+                <td style="font-family: monospace; font-size: 0.75rem;">${escapeHtml(b.filename)}${safetyBadge}</td>
+                <td class="text-right" style="white-space: nowrap;">${b.size_mb} MB</td>
+                <td style="white-space: nowrap; font-size: 0.75rem;">${escapeHtml(b.created_at)}</td>
+                <td class="text-right" style="white-space: nowrap;">
+                    <button class="btn btn-outline btn-compact" onclick="_backupRestore('${escapeHtml(b.filename)}')" title="Restore this backup" style="font-size: 0.7rem; margin-right: 0.2rem; border-color: rgba(251,191,36,0.4); color: #fbbf24;">
+                        Restore
+                    </button>
+                    <button class="btn btn-outline btn-compact" onclick="_backupDownload('${escapeHtml(b.filename)}')" title="Download" style="font-size: 0.7rem; margin-right: 0.2rem;">
+                        ↓
+                    </button>
+                    <button class="btn btn-outline btn-compact" onclick="_backupDelete('${escapeHtml(b.filename)}')" title="Delete" style="font-size: 0.7rem; border-color: rgba(239,68,68,0.4); color: #fca5a5;">
+                        ✕
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center" style="color: #fca5a5;">Failed to load backups</td></tr>';
+    }
+}
+
+async function _createBackup() {
+    const btn = document.getElementById('backup-create-btn');
+    const origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+
+    try {
+        const res = await fetch('/api/admin/backup', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            _showBackupStatus(`Backup created: ${data.filename}`, 'success');
+            _loadBackupList();
+        } else {
+            _showBackupStatus(data.error || 'Backup failed', 'error');
+        }
+    } catch (err) {
+        _showBackupStatus('Connection error', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    }
+}
+
+async function _backupRestore(filename) {
+    if (!confirm(`⚠️ RESTORE DATABASE from backup:\n\n${filename}\n\nThis will replace the current database. A safety backup will be created first.\n\nAre you sure?`)) return;
+    if (!confirm('This is a DESTRUCTIVE operation. Are you absolutely sure?')) return;
+
+    try {
+        const res = await fetch('/api/admin/backup/restore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            alert(`Database restored from: ${data.restored_from}\nSafety backup: ${data.safety_backup}\n\nThe page will now reload.`);
+            location.reload();
+        } else {
+            _showBackupStatus(data.error || 'Restore failed', 'error');
+        }
+    } catch (err) {
+        _showBackupStatus('Connection error during restore', 'error');
+    }
+}
+
+function _backupDownload(filename) {
+    window.open(`/api/admin/backup/download/${encodeURIComponent(filename)}`, '_blank');
+}
+
+async function _backupDelete(filename) {
+    if (!confirm(`Delete backup "${filename}"?`)) return;
+
+    try {
+        const res = await fetch(`/api/admin/backup/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            _showBackupStatus('Backup deleted', 'success');
+            _loadBackupList();
+        } else {
+            _showBackupStatus(data.error || 'Delete failed', 'error');
+        }
+    } catch (err) {
+        _showBackupStatus('Connection error', 'error');
     }
 }

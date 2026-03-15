@@ -113,6 +113,51 @@
                 </div>
                 <div id="admin-pw-msg" class="hidden" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
             </div>
+
+            <!-- Database Backups -->
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: var(--radius-md);">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <h3 style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="vertical-align: -3px; margin-right: 0.3rem;">
+                            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                        </svg>
+                        Database Backups
+                    </h3>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <label class="backup-toggle" title="Auto daily backup">
+                            <input type="checkbox" id="backup-auto-toggle">
+                            <span class="backup-toggle-slider"></span>
+                            <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.4rem;">Auto Daily</span>
+                        </label>
+                        <button id="backup-create-btn" class="btn btn-primary" style="padding: 0.4rem 0.8rem; background: #059669; border: none; color: white; font-size: 0.8rem; white-space: nowrap;">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="vertical-align: -2px; margin-right: 0.2rem;">
+                                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"></path>
+                                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                                <polyline points="7 3 7 8 15 8"></polyline>
+                            </svg>
+                            Create Backup Now
+                        </button>
+                    </div>
+                </div>
+                <div id="backup-status-msg" class="hidden" style="margin-bottom: 0.5rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.8rem;"></div>
+                <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                    <table class="data-table" style="font-size: 0.8rem;">
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th class="text-right">Size</th>
+                                <th>Created</th>
+                                <th class="text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backup-list">
+                            <tr><td colspan="4" class="text-center" style="padding: 1rem; color: var(--text-secondary);">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 

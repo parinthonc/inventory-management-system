@@ -377,6 +377,259 @@ def admin_audit_log():
     return jsonify(entries)
 
 
+# ─── Database Backup System ──────────────────────────────────────────────────
+# Provides manual and automated backups of inventory.db with restore capability.
+
+import configparser as _configparser
+
+_backup_config = _configparser.ConfigParser()
+_backup_config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'))
+
+BACKUP_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    _backup_config.get('backup', 'backup_dir', fallback='backups')
+)
+BACKUP_MAX = _backup_config.getint('backup', 'max_backups', fallback=30)
+BACKUP_AUTO_ENABLED = _backup_config.getboolean('backup', 'auto_backup', fallback=True)
+
+# Ensure backup directory exists
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+# In-memory toggle for auto-backup (persisted to config.ini on change)
+_auto_backup_enabled = BACKUP_AUTO_ENABLED
+_backup_timer = None
+_BACKUP_CHECK_INTERVAL = 3600  # Check every hour
+
+
+def _create_backup(prefix='inventory'):
+    """Create a timestamped backup of the database. Returns the backup filename."""
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    backup_filename = f'{prefix}_{timestamp}.db'
+    backup_path = os.path.join(BACKUP_DIR, backup_filename)
+
+    # Use SQLite backup API for a safe, consistent copy (even while DB is in use)
+    try:
+        src_conn = sqlite3.connect(DB_FILE)
+        dst_conn = sqlite3.connect(backup_path)
+        src_conn.backup(dst_conn)
+        dst_conn.close()
+        src_conn.close()
+    except Exception:
+        # Fallback to file copy if backup API fails
+        shutil.copy2(DB_FILE, backup_path)
+
+    print(f'[Backup] Created: {backup_filename} ({os.path.getsize(backup_path) / 1024 / 1024:.1f} MB)')
+
+    # Enforce retention limit
+    _enforce_retention()
+
+    return backup_filename
+
+
+def _enforce_retention():
+    """Delete oldest backups if count exceeds BACKUP_MAX."""
+    backups = _list_backups()
+    # Only count regular backups (not pre_restore safety backups) for retention
+    regular = [b for b in backups if not b['filename'].startswith('pre_restore_')]
+    while len(regular) > BACKUP_MAX:
+        oldest = regular.pop()  # list is sorted newest-first, so last = oldest
+        try:
+            os.remove(os.path.join(BACKUP_DIR, oldest['filename']))
+            print(f'[Backup] Retention cleanup: deleted {oldest["filename"]}')
+        except OSError as e:
+            print(f'[Backup] Error deleting {oldest["filename"]}: {e}')
+
+
+def _list_backups():
+    """Return a list of backup file info dicts, sorted newest first."""
+    backups = []
+    if not os.path.isdir(BACKUP_DIR):
+        return backups
+    for fname in os.listdir(BACKUP_DIR):
+        if fname.endswith('.db'):
+            fpath = os.path.join(BACKUP_DIR, fname)
+            stat = os.stat(fpath)
+            backups.append({
+                'filename': fname,
+                'size_bytes': stat.st_size,
+                'size_mb': round(stat.st_size / 1024 / 1024, 1),
+                'created_at': datetime.datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                'is_safety': fname.startswith('pre_restore_'),
+            })
+    backups.sort(key=lambda b: b['created_at'], reverse=True)
+    return backups
+
+
+# ── Auto-Backup Scheduler ────────────────────────────────────────────────────
+
+def _auto_backup_check():
+    """Background timer callback: create a daily backup if none exists for today."""
+    global _backup_timer
+    if not _auto_backup_enabled:
+        _backup_timer = threading.Timer(_BACKUP_CHECK_INTERVAL, _auto_backup_check)
+        _backup_timer.daemon = True
+        _backup_timer.start()
+        return
+
+    today_prefix = datetime.datetime.now().strftime('inventory_%Y-%m-%d')
+    existing = [f for f in os.listdir(BACKUP_DIR) if f.startswith(today_prefix) and f.endswith('.db')]
+
+    if not existing:
+        try:
+            _create_backup()
+            print('[Backup] Auto-daily backup completed.')
+        except Exception as e:
+            print(f'[Backup] Auto-backup error: {e}')
+    else:
+        print(f'[Backup] Auto-backup skipped — today\'s backup already exists ({existing[0]})')
+
+    # Schedule next check
+    _backup_timer = threading.Timer(_BACKUP_CHECK_INTERVAL, _auto_backup_check)
+    _backup_timer.daemon = True
+    _backup_timer.start()
+
+
+def _start_auto_backup_scheduler():
+    """Start the auto-backup scheduler in the background."""
+    global _backup_timer
+    if _backup_timer is not None:
+        return  # Already running
+    # Run the first check after a short delay (30s after server start)
+    _backup_timer = threading.Timer(30, _auto_backup_check)
+    _backup_timer.daemon = True
+    _backup_timer.start()
+    print('[Backup] Auto-backup scheduler started (checks every hour)')
+
+
+def _update_auto_backup_config(enabled):
+    """Update the auto_backup setting in config.ini."""
+    cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+    cfg = _configparser.ConfigParser()
+    cfg.read(cfg_path)
+    if not cfg.has_section('backup'):
+        cfg.add_section('backup')
+    cfg.set('backup', 'auto_backup', 'yes' if enabled else 'no')
+    with open(cfg_path, 'w') as f:
+        cfg.write(f)
+
+
+# ── Backup API Endpoints ─────────────────────────────────────────────────────
+
+@app.route('/api/admin/backup', methods=['POST'])
+@admin_required
+def admin_create_backup():
+    """Create a manual backup of the database."""
+    try:
+        filename = _create_backup()
+        _log_audit(session['user'], f'backup_create:{filename}', request.remote_addr)
+        return jsonify({'success': True, 'filename': filename})
+    except Exception as e:
+        print(f'[Backup] Error creating backup: {e}')
+        return jsonify({'error': f'Backup failed: {str(e)}'}), 500
+
+
+@app.route('/api/admin/backups', methods=['GET'])
+@admin_required
+def admin_list_backups():
+    """List all available backups."""
+    backups = _list_backups()
+    return jsonify({
+        'backups': backups,
+        'auto_backup': _auto_backup_enabled,
+        'max_backups': BACKUP_MAX,
+    })
+
+
+@app.route('/api/admin/backup/restore', methods=['POST'])
+@admin_required
+def admin_restore_backup():
+    """Restore the database from a backup file."""
+    data = request.get_json(force=True)
+    filename = data.get('filename', '').strip()
+
+    if not filename or not filename.endswith('.db'):
+        return jsonify({'error': 'Invalid backup filename'}), 400
+
+    # Sanitize: prevent path traversal
+    filename = os.path.basename(filename)
+    backup_path = os.path.join(BACKUP_DIR, filename)
+
+    if not os.path.isfile(backup_path):
+        return jsonify({'error': 'Backup file not found'}), 404
+
+    try:
+        # 1. Create a safety backup of the current DB before restoring
+        safety_name = _create_backup(prefix='pre_restore')
+
+        # 2. Restore: copy the backup over the live database
+        shutil.copy2(backup_path, DB_FILE)
+
+        _log_audit(session['user'], f'backup_restore:{filename}', request.remote_addr)
+        print(f'[Backup] Restored from {filename} (safety backup: {safety_name})')
+
+        return jsonify({
+            'success': True,
+            'restored_from': filename,
+            'safety_backup': safety_name,
+            'message': 'Database restored. Please refresh the page to see updated data.'
+        })
+    except Exception as e:
+        print(f'[Backup] Restore error: {e}')
+        return jsonify({'error': f'Restore failed: {str(e)}'}), 500
+
+
+@app.route('/api/admin/backup/<filename>', methods=['DELETE'])
+@admin_required
+def admin_delete_backup(filename):
+    """Delete a specific backup file."""
+    filename = os.path.basename(filename)
+    backup_path = os.path.join(BACKUP_DIR, filename)
+
+    if not os.path.isfile(backup_path):
+        return jsonify({'error': 'Backup file not found'}), 404
+
+    try:
+        os.remove(backup_path)
+        _log_audit(session['user'], f'backup_delete:{filename}', request.remote_addr)
+        print(f'[Backup] Deleted: {filename}')
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f'[Backup] Delete error: {e}')
+        return jsonify({'error': f'Delete failed: {str(e)}'}), 500
+
+
+@app.route('/api/admin/backup/download/<filename>')
+@admin_required
+def admin_download_backup(filename):
+    """Download a specific backup file."""
+    filename = os.path.basename(filename)
+    backup_path = os.path.join(BACKUP_DIR, filename)
+
+    if not os.path.isfile(backup_path):
+        return jsonify({'error': 'Backup file not found'}), 404
+
+    _log_audit(session['user'], f'backup_download:{filename}', request.remote_addr)
+    return send_from_directory(BACKUP_DIR, filename, as_attachment=True)
+
+
+@app.route('/api/admin/backup/schedule', methods=['GET', 'POST'])
+@admin_required
+def admin_backup_schedule():
+    """Get or update the auto-backup schedule setting."""
+    global _auto_backup_enabled
+
+    if request.method == 'GET':
+        return jsonify({'auto_backup': _auto_backup_enabled})
+
+    data = request.get_json(force=True)
+    enabled = bool(data.get('auto_backup', False))
+    _auto_backup_enabled = enabled
+    _update_auto_backup_config(enabled)
+    _log_audit(session['user'], f'backup_schedule:{"on" if enabled else "off"}', request.remote_addr)
+    print(f'[Backup] Auto-backup {"enabled" if enabled else "disabled"} by {session["user"]}')
+    return jsonify({'success': True, 'auto_backup': enabled})
+
+
 # ── Global Auth Guard ─────────────────────────────────────────────────────────
 # Instead of decorating every route with @login_required, this before_request
 # hook checks authentication globally.  Only whitelisted paths are public.
@@ -2675,6 +2928,8 @@ if __name__ == '__main__':
     load_archived_history_cache()
     # Start background file watcher for auto-sync from Z:\ server
     start_file_watcher()
+    # Start auto-backup scheduler
+    _start_auto_backup_scheduler()
     print(f"Available at: http://localhost:{args.port}")
     print("[AutoSync] Background file watcher active — monitoring Z:\\ for changes every", FILE_CHECK_INTERVAL, "seconds")
 

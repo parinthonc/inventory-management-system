@@ -23,6 +23,7 @@ engine list/
 forklift brand/
 invoice/
 logo/
+backups/
 
 # --- Cache & runtime files ---
 __pycache__/

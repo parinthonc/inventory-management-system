@@ -1556,7 +1556,7 @@ h4 {
 }
 
 .part-code {
-    font-size: 1.15rem;
+    font-size: 1.75rem;
     margin-bottom: 0.15rem;
     font-family: monospace;
     color: white;
@@ -2194,7 +2194,7 @@ h4 {
     }
 
     .part-code {
-        font-size: 1.2rem;
+        font-size: 1.6rem;
     }
 
     .detail-grid {
@@ -2377,7 +2377,7 @@ h4 {
     }
 
     .part-code {
-        font-size: 1rem;
+        font-size: 1.4rem;
     }
 
     .name-eng {
@@ -3118,4 +3118,58 @@ h4 {
     background: rgba(37, 99, 235, 0.1);
     color: #2563eb;
     border-color: rgba(37, 99, 235, 0.2);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BACKUP TOGGLE SWITCH
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.backup-toggle {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.backup-toggle input {
+    display: none;
+}
+
+.backup-toggle-slider {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
+    transition: background 0.25s ease;
+    flex-shrink: 0;
+}
+
+.backup-toggle-slider::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #94a3b8;
+    transition: transform 0.25s ease, background 0.25s ease;
+}
+
+.backup-toggle input:checked + .backup-toggle-slider {
+    background: rgba(5, 150, 105, 0.4);
+}
+
+.backup-toggle input:checked + .backup-toggle-slider::before {
+    transform: translateX(14px);
+    background: #10b981;
+}
+
+[data-theme="light"] .backup-toggle-slider {
+    background: rgba(0, 0, 0, 0.12);
+}
+
+[data-theme="light"] .backup-toggle input:checked + .backup-toggle-slider {
+    background: rgba(5, 150, 105, 0.3);
 }
