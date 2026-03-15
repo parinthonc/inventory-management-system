@@ -1,3 +1,49 @@
+// ─── Theme Management (Light/Dark) ────────────────────────────────────────
+// Applied immediately to avoid flash of wrong theme on page load.
+(function initTheme() {
+    const saved = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+    // After DOM is ready, sync the toggle icon
+    document.addEventListener('DOMContentLoaded', () => {
+        const sunIcon = document.getElementById('theme-icon-sun');
+        const moonIcon = document.getElementById('theme-icon-moon');
+        const toggleBtn = document.getElementById('theme-toggle-btn');
+        if (!sunIcon || !moonIcon || !toggleBtn) return;
+
+        function syncIcons(theme) {
+            if (theme === 'light') {
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+            } else {
+                sunIcon.classList.remove('hidden');
+                moonIcon.classList.add('hidden');
+            }
+        }
+        syncIcons(saved);
+
+        toggleBtn.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme') || 'light';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            syncIcons(next);
+        });
+    });
+})();
+
+// ─── Theme-aware Color Helper ─────────────────────────────────────────────
+// Returns colours appropriate for the current theme.  Used by Chart.js and
+// any JS-generated inline styles that can't rely on CSS variables alone.
+function getThemeColors() {
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    return {
+        tickColor:  isLight ? 'rgba(0, 0, 0, 0.55)'   : 'rgba(255, 255, 255, 0.5)',
+        gridColor:  isLight ? 'rgba(0, 0, 0, 0.06)'   : 'rgba(255, 255, 255, 0.05)',
+        locBadgeBg: isLight ? 'rgba(109, 40, 217, 0.1)' : 'rgba(139, 92, 246, 0.2)',
+        locBadgeColor: isLight ? '#6d28d9' : '#c4b5fd',
+    };
+}
+
 // Category name mapping: English -> Thai
 const CATEGORY_NAME_TH = {
     'Domestic Purchase': 'ซื้อในประเทศ',
@@ -252,13 +298,6 @@ const els = {
     refreshInvoiceBtn: document.getElementById('refresh-invoice-btn'),
     invoiceModDate: document.getElementById('invoice-mod-date'),
 
-    // Import CSV
-    importCsvBtn: document.getElementById('import-csv-btn'),
-    importCsvModal: document.getElementById('import-csv-modal'),
-    importCsvClose: document.getElementById('import-csv-close'),
-    importCsvPath: document.getElementById('import-csv-path'),
-    importCsvGo: document.getElementById('import-csv-go'),
-    importCsvStatus: document.getElementById('import-csv-status')
 };
 
 // Global chart instances
@@ -870,122 +909,10 @@ function setupEventListeners() {
         }
     });
 
-    // --- IMPORT CSV ---
-    if (els.importCsvBtn) {
-        els.importCsvBtn.addEventListener('click', () => {
-            // Restore last-used path from localStorage
-            const savedPath = localStorage.getItem('importCsvLastPath');
-            if (savedPath && els.importCsvPath) {
-                els.importCsvPath.value = savedPath;
-            }
-            els.importCsvStatus.classList.add('hidden');
-            els.importCsvModal.classList.remove('hidden');
-        });
-    }
-    if (els.importCsvClose) {
-        els.importCsvClose.addEventListener('click', () => {
-            els.importCsvModal.classList.add('hidden');
-        });
-    }
-    if (els.importCsvModal) {
-        els.importCsvModal.addEventListener('click', (e) => {
-            if (e.target === els.importCsvModal) els.importCsvModal.classList.add('hidden');
-        });
-    }
-    if (els.importCsvGo) {
-        els.importCsvGo.addEventListener('click', importCsvFromFolder);
-    }
-    if (els.importCsvPath) {
-        els.importCsvPath.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') importCsvFromFolder();
-        });
-    }
+
 }
 
-// Import CSV from folder
-async function importCsvFromFolder() {
-    const folderPath = els.importCsvPath.value.trim();
-    if (!folderPath) {
-        els.importCsvStatus.classList.remove('hidden');
-        els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
-        els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-        els.importCsvStatus.innerHTML = '⚠️ Please enter a folder path.';
-        return;
-    }
 
-    // Show loading
-    els.importCsvGo.disabled = true;
-    els.importCsvGo.textContent = 'Importing...';
-    els.importCsvStatus.classList.remove('hidden');
-    els.importCsvStatus.style.background = 'rgba(59, 130, 246, 0.1)';
-    els.importCsvStatus.style.border = '1px solid rgba(59, 130, 246, 0.2)';
-    els.importCsvStatus.innerHTML = '<div class="spinner" style="width:20px;height:20px;margin:0 auto;"></div><p style="text-align:center;margin-top:0.5rem;">Importing and reloading caches...</p>';
-
-    try {
-        const res = await fetch('/api/import-csv-folder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folder_path: folderPath })
-        });
-        const data = await res.json();
-
-        if (data.success) {
-            // Save path
-            localStorage.setItem('importCsvLastPath', folderPath);
-
-            // Build success HTML
-            let html = '<div style="color: #86efac; font-weight: 600; margin-bottom: 0.5rem;">✅ ' + data.message + '</div>';
-
-            if (data.imported && data.imported.length > 0) {
-                html += '<div style="margin-bottom: 0.5rem;"><strong>Imported:</strong></div>';
-                html += '<ul style="margin: 0; padding-left: 1.25rem;">';
-                for (const f of data.imported) {
-                    html += `<li style="color: #86efac;">${f.file} <span style="color: var(--text-secondary);">(${f.size_mb} MB)</span></li>`;
-                }
-                html += '</ul>';
-            }
-
-            if (data.details) {
-                html += '<div style="margin-top: 0.5rem; color: var(--text-secondary);">';
-                for (const [key, val] of Object.entries(data.details)) {
-                    html += `<div>• ${key}: ${val}</div>`;
-                }
-                html += '</div>';
-            }
-
-            if (data.skipped && data.skipped.length > 0) {
-                html += `<div style="margin-top: 0.5rem; color: var(--text-muted);">Skipped (not found): ${data.skipped.join(', ')}</div>`;
-            }
-
-            els.importCsvStatus.style.background = 'rgba(34, 197, 94, 0.1)';
-            els.importCsvStatus.style.border = '1px solid rgba(34, 197, 94, 0.25)';
-            els.importCsvStatus.innerHTML = html;
-
-            // Refresh app data
-            await fetchStats();
-            if (state.currentTab === 'products') await fetchProducts();
-            if (state.currentTab === 'customer') fetchCustomers();
-            if (state.currentTab === 'invoice') fetchInvoices();
-            if (state.currentTab === 'moves') fetchMoves();
-        } else {
-            els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
-            els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-            let errHtml = `⚠️ ${data.message}`;
-            if (data.skipped && data.skipped.length > 0) {
-                errHtml += `<div style="margin-top: 0.5rem; color: var(--text-muted); font-size: 0.8rem;">Expected files: ${data.skipped.join(', ')}</div>`;
-            }
-            els.importCsvStatus.innerHTML = errHtml;
-        }
-    } catch (err) {
-        console.error('Import CSV error:', err);
-        els.importCsvStatus.style.background = 'rgba(239, 68, 68, 0.15)';
-        els.importCsvStatus.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-        els.importCsvStatus.innerHTML = '⚠️ Import failed. Check console for details.';
-    }
-
-    els.importCsvGo.disabled = false;
-    els.importCsvGo.textContent = 'Import';
-}
 
 // API Calls
 async function fetchStats() {
@@ -1196,7 +1123,7 @@ function renderProducts() {
 
         // Flagged styling indicator — color-coded badge with Thai label
         const flagTypeLabels = {
-            'out_of_stock': '⚠ สินค้าหมด',
+            'out_of_stock': '⚠ สินค้าหมด (ระบบยังแสดง)',
             'less_than': '⚠ น้อยกว่าระบบ',
             'more_than': 'ℹ มากกว่าระบบ'
         };
@@ -1218,7 +1145,7 @@ function renderProducts() {
                 </div>
             </td>
             <td>
-                <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">ใหม่</span>' : ''}</div>
+                <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">อัปเดต</span>' : ''}</div>
                 ${flagIndicator}
             </td>
             <td>
@@ -1240,7 +1167,7 @@ function renderProducts() {
                 <span class="text-muted" title="${p.size || ''}">${p.size || '-'}</span>
             </td>
             <td>
-                <span class="brand-badge" style="background: rgba(139, 92, 246, 0.2); color: #c4b5fd;">${p.locations || '-'}</span>
+                <span class="brand-badge location-badge">${p.locations || '-'}</span>
             </td>
             <td class="text-right">
                 <span class="qty-badge ${qtyClass}">${formatNumber(displayQty)}</span>
@@ -1488,7 +1415,7 @@ function renderMoves() {
             <td style="white-space:nowrap;">${formattedDate}</td>
             <td>${m.doc_ref || '-'}</td>
             <td>${getCategoryThai(m.category_name)}</td>
-            <td><div style="font-family: monospace; font-size: 1.05rem;">${m.part_code}${state.syncNewMoveKeys.has(moveKey) ? '<span class="sync-badge">ใหม่</span>' : ''}</div></td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${m.part_code}${state.syncNewMoveKeys.has(moveKey) ? '<span class="sync-badge">อัปเดต</span>' : ''}</div></td>
             <td>
                 <div class="desc-cell">
                     <div class="desc-eng">${m.name_eng || '-'}</div>
@@ -2352,10 +2279,10 @@ async function fetchAndRenderArchivedHistory(sku) {
                         y: {
                             beginAtZero: true,
                             grid: {
-                                color: 'rgba(255, 255, 255, 0.05)'
+                                color: getThemeColors().gridColor
                             },
                             ticks: {
-                                color: 'rgba(255, 255, 255, 0.5)',
+                                color: getThemeColors().tickColor,
                                 font: {
                                     size: 18
                                 }
@@ -2366,7 +2293,7 @@ async function fetchAndRenderArchivedHistory(sku) {
                                 display: false
                             },
                             ticks: {
-                                color: 'rgba(255, 255, 255, 0.5)',
+                                color: getThemeColors().tickColor,
                                 maxTicksLimit: 8,
                                 autoSkip: true,
                                 autoSkipPadding: 12,
@@ -2555,7 +2482,7 @@ function renderFlags() {
             </td>
             <td><span class="brand-badge">${f.brand || '-'}</span></td>
             <td class="text-right">
-                <span class="qty-badge" style="background: rgba(255,255,255,0.1); color: #fff;">${formatNumber(f.system_qty)}</span>
+                <span class="qty-badge">${formatNumber(f.system_qty)}</span>
             </td>
             <td>
                 <div><span class="badge" style="background: ${typeInfo.bg}; color: ${typeInfo.color}; border: 1px solid ${typeInfo.color}40;">${typeInfo.label}</span></div>
@@ -2665,8 +2592,8 @@ async function fetchFlagsCount() {
     }
 }
 
-// Start app
-document.addEventListener('DOMContentLoaded', init);
+// Start app — check authentication first
+document.addEventListener('DOMContentLoaded', authCheckAndInit);
 
 // ─── Customer List & Detail Code ────────────────────────────────────────────
 
@@ -3738,4 +3665,312 @@ function showDisappearedWarning(count, transactions) {
 
     banner.classList.remove('hidden');
     console.log(`[AutoSync] ⚠️ Showing disappeared warning: ${count} transaction(s)`);
+}
+
+// ─── Authentication System ──────────────────────────────────────────────────
+// Handles login overlay, session check, logout, and admin user management.
+
+/** Current user info — set after successful auth check. */
+let _currentUser = null;
+
+/**
+ * Entry point: check if user is authenticated, show login or load app.
+ */
+async function authCheckAndInit() {
+    const overlay = document.getElementById('login-overlay');
+    const appEl = document.getElementById('app');
+    try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+            _currentUser = await res.json();
+            // Authenticated — hide login, show app
+            overlay.classList.add('hidden');
+            appEl.style.display = '';
+            _showUserUI();
+            init();
+        } else {
+            // Not authenticated — show login overlay, hide app
+            overlay.classList.remove('hidden');
+            appEl.style.display = 'none';
+            _setupLoginHandlers();
+        }
+    } catch (err) {
+        // Network error — show login overlay
+        console.error('[Auth] Error checking session:', err);
+        overlay.classList.remove('hidden');
+        appEl.style.display = 'none';
+        _setupLoginHandlers();
+    }
+}
+
+/** Flag to prevent double-binding login listeners. */
+let _loginHandlersBound = false;
+
+function _setupLoginHandlers() {
+    if (_loginHandlersBound) return;
+    _loginHandlersBound = true;
+
+    const form = document.getElementById('login-form');
+    const guestBtn = document.getElementById('login-guest-btn');
+    const errorDiv = document.getElementById('login-error');
+    const submitBtn = document.getElementById('login-submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        errorDiv.classList.add('hidden');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Logging in...';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                _currentUser = data.user;
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('app').style.display = '';
+                _showUserUI();
+                init();
+            } else {
+                errorDiv.textContent = data.error || 'Login failed';
+                errorDiv.classList.remove('hidden');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Login`;
+            }
+        } catch (err) {
+            errorDiv.textContent = 'Connection error. Is the server running?';
+            errorDiv.classList.remove('hidden');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg> Login`;
+        }
+    });
+
+    // Guest login button
+    guestBtn.addEventListener('click', async () => {
+        errorDiv.classList.add('hidden');
+        guestBtn.disabled = true;
+        guestBtn.textContent = 'Logging in as guest...';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: 'guest', password: 'guest' })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                _currentUser = data.user;
+                document.getElementById('login-overlay').classList.add('hidden');
+                document.getElementById('app').style.display = '';
+                _showUserUI();
+                init();
+            } else {
+                errorDiv.textContent = data.error || 'Guest login failed';
+                errorDiv.classList.remove('hidden');
+                guestBtn.disabled = false;
+                guestBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Login as Guest`;
+            }
+        } catch (err) {
+            errorDiv.textContent = 'Connection error';
+            errorDiv.classList.remove('hidden');
+            guestBtn.disabled = false;
+            guestBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> Login as Guest`;
+        }
+    });
+}
+
+
+/**
+ * Show user badge, admin button, and logout button in the navbar.
+ */
+function _showUserUI() {
+    if (!_currentUser) return;
+
+    const badge = document.getElementById('user-badge');
+    const adminBtn = document.getElementById('admin-panel-btn');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    // Show user badge
+    badge.textContent = _currentUser.username;
+    badge.classList.remove('hidden');
+
+    // Show admin panel button only for admin users
+    if (_currentUser.role === 'admin') {
+        adminBtn.classList.remove('hidden');
+        adminBtn.addEventListener('click', _openAdminPanel);
+    }
+
+    // Logout button
+    logoutBtn.classList.remove('hidden');
+    logoutBtn.addEventListener('click', async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+        } catch (e) { /* ignore */ }
+        location.reload();
+    });
+}
+
+
+// ─── Admin Panel ────────────────────────────────────────────────────────────
+
+function _openAdminPanel() {
+    const modal = document.getElementById('admin-modal');
+    modal.classList.remove('hidden');
+    _loadAdminUsers();
+    _setupAdminHandlers();
+
+    // Close button
+    document.getElementById('admin-close-btn').onclick = () => modal.classList.add('hidden');
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.add('hidden');
+    });
+}
+
+let _adminHandlersBound = false;
+
+function _setupAdminHandlers() {
+    if (_adminHandlersBound) return;
+    _adminHandlersBound = true;
+
+    // Add user
+    document.getElementById('admin-add-btn').addEventListener('click', async () => {
+        const username = document.getElementById('admin-new-username').value.trim();
+        const password = document.getElementById('admin-new-password').value;
+        const role = document.getElementById('admin-new-role').value;
+        const errDiv = document.getElementById('admin-add-error');
+        errDiv.classList.add('hidden');
+
+        if (!username || !password) {
+            errDiv.textContent = 'Username and password required';
+            errDiv.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/admin/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, role })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                document.getElementById('admin-new-username').value = '';
+                document.getElementById('admin-new-password').value = '';
+                _loadAdminUsers();
+            } else {
+                errDiv.textContent = data.error || 'Failed to create user';
+                errDiv.classList.remove('hidden');
+            }
+        } catch (err) {
+            errDiv.textContent = 'Connection error';
+            errDiv.classList.remove('hidden');
+        }
+    });
+
+    // Change own password
+    document.getElementById('admin-change-pw-btn').addEventListener('click', async () => {
+        const currentPw = document.getElementById('admin-current-pw').value;
+        const newPw = document.getElementById('admin-new-pw').value;
+        const msgDiv = document.getElementById('admin-pw-msg');
+
+        if (!currentPw || !newPw) {
+            msgDiv.textContent = 'Both fields required';
+            msgDiv.style.color = '#fca5a5';
+            msgDiv.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ current_password: currentPw, new_password: newPw })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                msgDiv.textContent = '✓ Password updated successfully';
+                msgDiv.style.color = '#10b981';
+                document.getElementById('admin-current-pw').value = '';
+                document.getElementById('admin-new-pw').value = '';
+            } else {
+                msgDiv.textContent = data.error || 'Failed to change password';
+                msgDiv.style.color = '#fca5a5';
+            }
+            msgDiv.classList.remove('hidden');
+        } catch (err) {
+            msgDiv.textContent = 'Connection error';
+            msgDiv.style.color = '#fca5a5';
+            msgDiv.classList.remove('hidden');
+        }
+    });
+}
+
+
+async function _loadAdminUsers() {
+    const tbody = document.getElementById('admin-user-list');
+    try {
+        const res = await fetch('/api/admin/users');
+        const users = await res.json();
+        if (!Array.isArray(users)) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">Error loading users</td></tr>';
+            return;
+        }
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td><strong>${u.username}</strong></td>
+                <td><span class="badge">${u.role}</span></td>
+                <td style="font-size: 0.85rem; color: var(--text-secondary);">${u.created_at || '-'}</td>
+                <td class="text-right">
+                    <button class="btn btn-outline btn-compact" onclick="_adminResetPassword(${u.id}, '${u.username}')" title="Reset password" style="margin-right:0.25rem;">
+                        Reset PW
+                    </button>
+                    <button class="btn btn-outline btn-compact" onclick="_adminDeleteUser(${u.id}, '${u.username}')" title="Delete user" style="border-color: rgba(239,68,68,0.4); color: #fca5a5;">
+                        Delete
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center">Failed to load users</td></tr>';
+    }
+}
+
+async function _adminDeleteUser(userId, username) {
+    if (!confirm(`Delete user "${username}"?`)) return;
+    try {
+        const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            _loadAdminUsers();
+        } else {
+            alert(data.error || 'Failed to delete user');
+        }
+    } catch (err) {
+        alert('Connection error');
+    }
+}
+
+async function _adminResetPassword(userId, username) {
+    const newPw = prompt(`Enter new password for "${username}":`);
+    if (!newPw) return;
+    try {
+        const res = await fetch(`/api/admin/users/${userId}/reset-password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: newPw })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            alert(`Password for "${username}" has been reset.`);
+        } else {
+            alert(data.error || 'Failed to reset password');
+        }
+    } catch (err) {
+        alert('Connection error');
+    }
 }

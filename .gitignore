@@ -30,6 +30,7 @@ __pycache__/
 *.pyo
 titles_cache.json
 sync_config.json
+auth_secret.key
 
 # --- OS files ---
 Thumbs.db

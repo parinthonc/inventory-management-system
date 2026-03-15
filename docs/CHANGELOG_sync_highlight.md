@@ -3,7 +3,7 @@
 ## Summary
 Added visual highlighting to distinguish **newly detected** products and stock moves after
 a sync (auto-sync or manual trigger). Rows that are new or changed show a green glow
-animation and a **"ใหม่"** badge next to the part code. The highlight **persists** until the
+animation and a **"อัปเดต"** badge next to the part code. The highlight **persists** until the
 next sync detects new changes.
 
 For items sold **today**, the detection time is also shown (e.g. "ตรวจพบเมื่อ 14:35") in the
@@ -19,7 +19,7 @@ entries immediately obvious at a glance.
 ### `index.css`
 - Added `@keyframes sync-pulse` — subtle border color pulse animation (infinite, not fade-out)
 - Added `.sync-new-row` class — green left-border accent + static green background + pulse
-- Added `.sync-badge` class — small green pill badge for the "ใหม่" label
+- Added `.sync-badge` class — small green pill badge for the "อัปเดต" label
 - Added `.sync-detection-time` class — green text for "ตรวจพบเมื่อ HH:MM" display
 
 ### `app.js`

@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, send_from_directory, Response
+from flask import Flask, jsonify, request, send_from_directory, Response, session
 import sqlite3
 import os
 import math
@@ -12,8 +12,11 @@ import subprocess
 import threading
 import time
 import queue
+import secrets
+import functools
 from collections import defaultdict
 import builtins
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # Override built-in print to prepend a timestamp to every console message
 _original_print = builtins.print
@@ -26,6 +29,23 @@ def _timestamped_print(*args, **kwargs):
 builtins.print = _timestamped_print
 
 app = Flask(__name__, static_folder='.', static_url_path='')
+
+# ─── Flask Session Secret Key ─────────────────────────────────────────────────
+# Auto-generate a secret key and persist it so sessions survive server restarts.
+AUTH_SECRET_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auth_secret.key')
+
+def _load_or_create_secret_key():
+    """Load secret key from file, or generate and save a new one."""
+    if os.path.isfile(AUTH_SECRET_FILE):
+        with open(AUTH_SECRET_FILE, 'r') as f:
+            return f.read().strip()
+    key = secrets.token_hex(32)
+    with open(AUTH_SECRET_FILE, 'w') as f:
+        f.write(key)
+    print(f"[Auth] Generated new secret key -> {AUTH_SECRET_FILE}")
+    return key
+
+app.secret_key = _load_or_create_secret_key()
 
 # Import build_db functions and config
 import sys
@@ -60,6 +80,336 @@ def init_flags_table():
     conn.close()
 
 init_flags_table()
+
+# ─── Authentication System ────────────────────────────────────────────────────
+
+def init_auth_tables():
+    """Create users and audit_log tables if they don't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'viewer',
+            created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            ip_address TEXT,
+            timestamp TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_auth_tables()
+
+
+def _create_default_accounts():
+    """Create default admin and guest accounts if no users exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) as cnt FROM users')
+    count = cursor.fetchone()['cnt']
+    if count == 0:
+        cursor.execute(
+            'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+            ('admin', generate_password_hash('admin'), 'admin')
+        )
+        cursor.execute(
+            'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+            ('guest', generate_password_hash('guest'), 'viewer')
+        )
+        conn.commit()
+        print('[Auth] ⚠️  Created default accounts: admin/admin and guest/guest')
+        print('[Auth] ⚠️  CHANGE THE DEFAULT ADMIN PASSWORD after first login!')
+    conn.close()
+
+_create_default_accounts()
+
+
+def login_required(f):
+    """Decorator to protect routes — returns 401 if not authenticated."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user' not in session:
+            return jsonify({'error': 'Authentication required'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+def admin_required(f):
+    """Decorator to restrict routes to admin users only."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user' not in session:
+            return jsonify({'error': 'Authentication required'}), 401
+        if session.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _log_audit(username, action, ip_address=None):
+    """Write an entry to the audit log."""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO audit_log (username, action, ip_address) VALUES (?, ?, ?)',
+            (username, action, ip_address or '')
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f'[Auth] Audit log error: {e}')
+
+
+# ── Auth API Endpoints ────────────────────────────────────────────────────────
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """Authenticate user and create session."""
+    data = request.get_json(force=True)
+    username = (data.get('username') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if user and check_password_hash(user['password_hash'], password):
+        session['user'] = user['username']
+        session['role'] = user['role']
+        session['user_id'] = user['id']
+        session.permanent = True
+        app.permanent_session_lifetime = datetime.timedelta(days=30)
+        _log_audit(username, 'login', request.remote_addr)
+        print(f"[Auth] Login: {username} (role={user['role']}) from {request.remote_addr}")
+        return jsonify({
+            'success': True,
+            'user': {'username': user['username'], 'role': user['role']}
+        })
+    else:
+        _log_audit(username, 'login_failed', request.remote_addr)
+        print(f"[Auth] Failed login attempt: {username} from {request.remote_addr}")
+        return jsonify({'error': 'Invalid username or password'}), 401
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    """Clear the user session."""
+    username = session.get('user', 'unknown')
+    _log_audit(username, 'logout', request.remote_addr)
+    session.clear()
+    print(f"[Auth] Logout: {username}")
+    return jsonify({'success': True})
+
+
+@app.route('/api/auth/me')
+def auth_me():
+    """Return the current authenticated user info, or 401."""
+    if 'user' not in session:
+        return jsonify({'error': 'Not authenticated'}), 401
+    return jsonify({
+        'username': session['user'],
+        'role': session['role']
+    })
+
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def auth_change_password():
+    """Allow the current user to change their own password."""
+    data = request.get_json(force=True)
+    current_pw = data.get('current_password', '')
+    new_pw = data.get('new_password', '')
+
+    if not current_pw or not new_pw:
+        return jsonify({'error': 'Current and new password required'}), 400
+    if len(new_pw) < 3:
+        return jsonify({'error': 'Password must be at least 3 characters'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ?', (session['user'],))
+    user = cursor.fetchone()
+
+    if not user or not check_password_hash(user['password_hash'], current_pw):
+        conn.close()
+        return jsonify({'error': 'Current password is incorrect'}), 401
+
+    cursor.execute(
+        'UPDATE users SET password_hash = ? WHERE id = ?',
+        (generate_password_hash(new_pw), user['id'])
+    )
+    conn.commit()
+    conn.close()
+    _log_audit(session['user'], 'change_password', request.remote_addr)
+    print(f"[Auth] Password changed: {session['user']}")
+    return jsonify({'success': True})
+
+
+# ── Admin API Endpoints ───────────────────────────────────────────────────────
+
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def admin_list_users():
+    """List all user accounts (without password hashes)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, username, role, created_at FROM users ORDER BY id')
+    users = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(users)
+
+
+@app.route('/api/admin/users', methods=['POST'])
+@admin_required
+def admin_create_user():
+    """Create a new user account."""
+    data = request.get_json(force=True)
+    username = (data.get('username') or '').strip().lower()
+    password = data.get('password') or ''
+    role = data.get('role', 'viewer')
+
+    if not username or not password:
+        return jsonify({'error': 'Username and password required'}), 400
+    if role not in ('admin', 'viewer'):
+        return jsonify({'error': 'Role must be admin or viewer'}), 400
+    if len(password) < 3:
+        return jsonify({'error': 'Password must be at least 3 characters'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)',
+            (username, generate_password_hash(password), role)
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        _log_audit(session['user'], f'create_user:{username}:{role}', request.remote_addr)
+        print(f"[Auth] User created: {username} (role={role}) by {session['user']}")
+        return jsonify({'success': True, 'id': user_id})
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': f'Username "{username}" already exists'}), 409
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_user(user_id):
+    """Delete a user account."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+    if user['username'] == session['user']:
+        conn.close()
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    _log_audit(session['user'], f'delete_user:{user["username"]}', request.remote_addr)
+    print(f"[Auth] User deleted: {user['username']} by {session['user']}")
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/users/<int:user_id>/reset-password', methods=['POST'])
+@admin_required
+def admin_reset_password(user_id):
+    """Reset a user's password (admin operation)."""
+    data = request.get_json(force=True)
+    new_pw = data.get('password', '')
+    if not new_pw or len(new_pw) < 3:
+        return jsonify({'error': 'Password must be at least 3 characters'}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'User not found'}), 404
+    cursor.execute(
+        'UPDATE users SET password_hash = ? WHERE id = ?',
+        (generate_password_hash(new_pw), user_id)
+    )
+    conn.commit()
+    conn.close()
+    _log_audit(session['user'], f'reset_password:{user["username"]}', request.remote_addr)
+    print(f"[Auth] Password reset for {user['username']} by {session['user']}")
+    return jsonify({'success': True})
+
+
+@app.route('/api/admin/audit-log')
+@admin_required
+def admin_audit_log():
+    """Return the last 100 audit log entries."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100')
+    entries = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(entries)
+
+
+# ── Global Auth Guard ─────────────────────────────────────────────────────────
+# Instead of decorating every route with @login_required, this before_request
+# hook checks authentication globally.  Only whitelisted paths are public.
+
+# Paths that can be accessed WITHOUT authentication
+_PUBLIC_PATHS = {
+    '/',              # Login page (index.html)
+    '/api/auth/login',
+    '/api/auth/logout',
+    '/api/auth/me',
+    '/api/logo',
+}
+
+# Prefixes that can be accessed without authentication (static assets)
+_PUBLIC_PREFIXES = (
+    '/index.css',
+    '/app.js',
+    '/images/',
+)
+
+@app.before_request
+def check_auth():
+    """Reject unauthenticated requests to protected routes."""
+    path = request.path
+    # Allow public paths
+    if path in _PUBLIC_PATHS:
+        return None
+    # Allow static asset prefixes
+    for prefix in _PUBLIC_PREFIXES:
+        if path.startswith(prefix):
+            return None
+    # All other routes require authentication
+    if 'user' not in session:
+        # For API routes, return JSON 401
+        if path.startswith('/api/'):
+            return jsonify({'error': 'Authentication required'}), 401
+        # For non-API routes (e.g. direct HTML page access), serve index anyway
+        # (the JS will handle showing the login overlay)
+        return None
+
 
 # Drop orphaned legacy tables (snapshots & import_log were from ZIND-based workflow,
 # no longer used — the webapp now sources all data from CSV extraction scripts).
@@ -1928,103 +2278,6 @@ def refresh_master():
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# ─── Import CSV from folder (no extraction, just copy + reload) ──────────────
-
-# Known CSV files and their destinations (relative to project root)
-_CSV_IMPORT_MAP = {
-    'stock_ledger_full.csv': {
-        'dest_dir': 'ledger',
-        'reload': 'ledger',
-    },
-    'customer_master.csv': {
-        'dest_dir': 'customer master table',
-        'reload': 'customer',
-    },
-    'invoice_headers.csv': {
-        'dest_dir': 'invoice',
-        'reload': 'invoice',
-    },
-    'invoice_line_items.csv': {
-        'dest_dir': 'invoice',
-        'reload': 'invoice',
-    },
-    'product_master_active.csv': {
-        'dest_dir': 'product master table',
-        'reload': 'master',
-    },
-}
-
-@app.route('/api/import-csv-folder', methods=['POST'])
-def import_csv_folder():
-    """Import CSV files from a local folder: copy to expected locations + reload caches."""
-    try:
-        data = request.get_json(force=True)
-        folder_path = data.get('folder_path', '').strip()
-
-        if not folder_path:
-            return jsonify({'success': False, 'message': 'No folder path provided.'}), 400
-
-        if not os.path.isdir(folder_path):
-            return jsonify({'success': False, 'message': f'Folder not found: {folder_path}'}), 400
-
-        project_root = os.path.dirname(os.path.abspath(__file__))
-        imported = []
-        skipped = []
-        reload_needed = set()
-
-        for csv_name, info in _CSV_IMPORT_MAP.items():
-            src = os.path.join(folder_path, csv_name)
-            if os.path.isfile(src):
-                dest_dir = os.path.join(project_root, info['dest_dir'])
-                os.makedirs(dest_dir, exist_ok=True)
-                dest = os.path.join(dest_dir, csv_name)
-                shutil.copy2(src, dest)
-                size_mb = os.path.getsize(dest) / (1024 * 1024)
-                imported.append({'file': csv_name, 'size_mb': round(size_mb, 2)})
-                reload_needed.add(info['reload'])
-                print(f"  Imported {csv_name} ({size_mb:.1f} MB) → {dest}")
-            else:
-                skipped.append(csv_name)
-
-        if not imported:
-            return jsonify({
-                'success': False,
-                'message': f'No matching CSV files found in {folder_path}',
-                'skipped': skipped,
-            }), 400
-
-        # Reload caches as needed
-        details = {}
-        if 'ledger' in reload_needed:
-            global archived_history_cache
-            archived_history_cache = None
-            load_archived_history_cache()
-            details['ledger'] = f'{len(archived_qty_cache)} SKU balances loaded'
-
-        if 'customer' in reload_needed:
-            load_customer_master_cache()
-            details['customer'] = f'{len(customer_master_cache)} customers loaded'
-
-        if 'invoice' in reload_needed:
-            load_invoice_cache()
-            details['invoice'] = f'{len(invoice_headers_cache)} invoice headers loaded'
-
-        if 'master' in reload_needed:
-            details['master'] = 'product_master_active.csv copied (use Refresh Master to rebuild DB)'
-
-        print(f"CSV import complete: {len(imported)} files imported, {len(skipped)} skipped.")
-
-        return jsonify({
-            'success': True,
-            'message': f'Imported {len(imported)} CSV file(s) from folder.',
-            'imported': imported,
-            'skipped': skipped,
-            'details': details,
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ─── Build flat moves list from archived ledger ─────────────────────────────
