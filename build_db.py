@@ -22,48 +22,16 @@ if _config_files_loaded:
 else:
     print("[Config] WARNING: No config files found!")
 
-# Image directories (custom searched first, then primary, then secondary)
+# Image directory (custom/user-uploaded images only)
 IMAGE_DIR_CUSTOM = config.get('images', 'custom_dir', fallback='').strip()
 if IMAGE_DIR_CUSTOM and not os.path.isabs(IMAGE_DIR_CUSTOM):
     IMAGE_DIR_CUSTOM = os.path.join(BASE_DIR, IMAGE_DIR_CUSTOM)
 if IMAGE_DIR_CUSTOM:
     os.makedirs(IMAGE_DIR_CUSTOM, exist_ok=True)
     print(f"[Config] Custom image dir: {IMAGE_DIR_CUSTOM}")
-IMAGE_DIR_PRIMARY = config.get('images', 'primary_dir', fallback=r'C:\Users\Jan\Documents\CW\results_images\image').strip()
-IMAGE_DIR_SECONDARY = config.get('images', 'secondary_dir', fallback='').strip()
-PRIMARY_MATCH_FIRST_TOKEN = config.getboolean('images', 'primary_match_first_token', fallback=False)
-SECONDARY_MATCH_FIRST_TOKEN = config.getboolean('images', 'secondary_match_first_token', fallback=False)
-IMAGE_DIRS = [d for d in [IMAGE_DIR_CUSTOM, IMAGE_DIR_PRIMARY, IMAGE_DIR_SECONDARY] if d]
 
-# Keep a single IMAGE_DIR for backward compatibility (used by server.py imports)
-IMAGE_DIR = IMAGE_DIR_PRIMARY
-
-# Build lookup caches for directories with first-token matching enabled.
-# Maps "first_token" → "full_folder_name" for O(1) part number resolution.
-_primary_folder_map = {}
-_secondary_folder_map = {}
-
-def _build_folder_map(directory):
-    """Scan a directory and return a dict mapping first-token → full folder name."""
-    folder_map = {}
-    if not directory or not os.path.isdir(directory):
-        return folder_map
-    for name in os.listdir(directory):
-        if os.path.isdir(os.path.join(directory, name)):
-            first_token = name.split(' ')[0].strip()
-            if first_token:
-                folder_map[first_token] = name
-    return folder_map
-
-if PRIMARY_MATCH_FIRST_TOKEN and IMAGE_DIR_PRIMARY:
-    _primary_folder_map = _build_folder_map(IMAGE_DIR_PRIMARY)
-    if _primary_folder_map:
-        print(f"Primary image folder map: {len(_primary_folder_map)} entries indexed.")
-
-if SECONDARY_MATCH_FIRST_TOKEN and IMAGE_DIR_SECONDARY:
-    _secondary_folder_map = _build_folder_map(IMAGE_DIR_SECONDARY)
-    if _secondary_folder_map:
-        print(f"Secondary image folder map: {len(_secondary_folder_map)} entries indexed.")
+# IMAGE_DIRS kept as a list for backward compatibility with server.py
+IMAGE_DIRS = [IMAGE_DIR_CUSTOM] if IMAGE_DIR_CUSTOM else []
 
 # Other paths
 ZIND_DIR = BASE_DIR
@@ -111,46 +79,16 @@ def extract_date_from_filename(filename):
     year_ce = year_be - 543
     return f"{year_ce:04d}-{month:02d}-{day:02d}"
 
-def _find_in_dir(img_dir, folder_map, use_first_token, base_part_number):
-    """Try to find a thumbnail in a single directory.
+def find_thumbnail(base_part_number):
+    """Find the first alphabetical image file in the part's custom image directory.
     Returns (relative_path, file_count) or (None, 0)."""
-    if not img_dir:
+    if not IMAGE_DIR_CUSTOM:
         return None, 0
 
-    if use_first_token:
-        full_folder = folder_map.get(base_part_number)
-        if full_folder:
-            part_dir = os.path.join(img_dir, full_folder)
-            files = [f for f in os.listdir(part_dir)
-                     if os.path.isfile(os.path.join(part_dir, f)) and not f.startswith('_hidden_')]
-            if files:
-                files.sort()
-                return os.path.join(full_folder, files[0]).replace('\\', '/'), len(files)
-    else:
-        part_dir = os.path.join(img_dir, base_part_number)
-        if os.path.isdir(part_dir):
-            files = [f for f in os.listdir(part_dir)
-                     if os.path.isfile(os.path.join(part_dir, f)) and not f.startswith('_hidden_')]
-            if files:
-                files.sort()
-                return os.path.join(base_part_number, files[0]).replace('\\', '/'), len(files)
-
-    return None, 0
-
-def find_thumbnail(base_part_number):
-    """Find the first alphabetical image file in the part's directory.
-    Searches primary directory first, then falls back to secondary.
-    Uses first-token folder matching when enabled for each directory."""
-    # 1. Try primary directory
-    result = _find_in_dir(IMAGE_DIR_PRIMARY, _primary_folder_map, PRIMARY_MATCH_FIRST_TOKEN, base_part_number)
-    if result[0]:
-        return result
-
-    # 2. Try secondary directory
-    result = _find_in_dir(IMAGE_DIR_SECONDARY, _secondary_folder_map, SECONDARY_MATCH_FIRST_TOKEN, base_part_number)
-    if result[0]:
-        return result
-
+    # Custom images are stored under SKU folders (e.g. "PART_G/")
+    # but at DB build time we only have the base part number, so we
+    # can't reliably match to a specific SKU folder. Return (None, 0)
+    # and let the server handle image discovery at runtime.
     return None, 0
 
 def parse_zind_file(filepath):

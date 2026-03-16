@@ -1719,11 +1719,11 @@ function insertThumbnail(imgData, isActive) {
         _updateCaptionBar(comment, uploadedBy, uploadedAt, source);
     };
 
-    // Source badge
-    if (source) {
+    // Source badge (custom images only now)
+    if (source === 'custom') {
         const badge = document.createElement('span');
         badge.className = `gallery-source-badge source-${source}`;
-        badge.textContent = source === 'custom' ? '📷' : source === 'official' ? '🏭' : '🌐';
+        badge.textContent = '📷';
         wrapper.appendChild(badge);
     }
 
@@ -1772,9 +1772,7 @@ function _updateCaptionBar(comment, uploadedBy, uploadedAt, source) {
                 metaParts.push(uploadedAt);
             }
         }
-        if (source && source !== 'custom') {
-            metaParts.push(source === 'official' ? 'Official' : 'Web');
-        }
+
         captionMeta.textContent = metaParts.join(' · ');
     } else {
         captionBar.classList.add('hidden');
@@ -4367,13 +4365,9 @@ async function _loadImagePermissions() {
         const res = await fetch('/api/permissions');
         const perms = await res.json();
 
-        const showOff = document.getElementById('perm-show-official');
-        const showWeb = document.getElementById('perm-show-web');
         const uploadViewer = document.getElementById('perm-upload-viewer');
         const deleteViewer = document.getElementById('perm-delete-viewer');
 
-        if (showOff) showOff.checked = perms.show_official_images;
-        if (showWeb) showWeb.checked = perms.show_web_images;
         if (uploadViewer) uploadViewer.checked = perms.custom_image_upload.includes('viewer');
         if (deleteViewer) deleteViewer.checked = perms.custom_image_delete.includes('viewer');
 
@@ -4382,8 +4376,6 @@ async function _loadImagePermissions() {
 
             const savePerms = async () => {
                 const payload = {
-                    show_official_images: showOff?.checked ?? true,
-                    show_web_images: showWeb?.checked ?? true,
                     custom_image_upload: ['admin'].concat(uploadViewer?.checked ? ['viewer'] : []),
                     custom_image_delete: ['admin'].concat(deleteViewer?.checked ? ['viewer'] : []),
                 };

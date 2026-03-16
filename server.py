@@ -51,10 +51,8 @@ app.secret_key = _load_or_create_secret_key()
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_db import (SUFFIX_MAP, find_thumbnail,
-                      IMAGE_DIRS, IMAGE_DIR, IMAGE_DIR_PRIMARY, IMAGE_DIR_SECONDARY,
-                      IMAGE_DIR_CUSTOM,
-                      PRIMARY_MATCH_FIRST_TOKEN, SECONDARY_MATCH_FIRST_TOKEN,
-                      _primary_folder_map, _secondary_folder_map, LOGO_FILE, ARCHIVED_LEDGER_DIR,
+                      IMAGE_DIRS, IMAGE_DIR_CUSTOM,
+                      LOGO_FILE, ARCHIVED_LEDGER_DIR,
                       config as app_config)
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inventory.db')
@@ -1545,17 +1543,16 @@ def serve_logo():
 
 @app.route('/images/<path:filename>')
 def serve_image(filename):
-    """Serve an image file, searching primary directory first then secondary.
+    """Serve an image file from the custom image directory.
     Blocks access to files with the _hidden_ prefix."""
     basename = os.path.basename(filename)
     if basename.startswith('_hidden_'):
         return 'Not found', 404
-    for img_dir in IMAGE_DIRS:
-        full_path = os.path.join(img_dir, filename)
+    if IMAGE_DIR_CUSTOM:
+        full_path = os.path.join(IMAGE_DIR_CUSTOM, filename)
         if os.path.isfile(full_path):
-            return send_from_directory(img_dir, filename)
-    # Fallback to primary dir (will return 404 naturally)
-    return send_from_directory(IMAGE_DIRS[0] if IMAGE_DIRS else '.', filename)
+            return send_from_directory(IMAGE_DIR_CUSTOM, filename)
+    return 'Not found', 404
 
 @app.route('/api/stats')
 def get_stats():
@@ -1840,13 +1837,9 @@ def _load_permissions():
     """Read permission settings from config.ini."""
     upload_roles = [r.strip() for r in app_config.get('permissions', 'custom_image_upload', fallback='admin,viewer').split(',')]
     delete_roles = [r.strip() for r in app_config.get('permissions', 'custom_image_delete', fallback='admin,viewer').split(',')]
-    show_official = app_config.getboolean('permissions', 'show_official_images', fallback=True)
-    show_web = app_config.getboolean('permissions', 'show_web_images', fallback=True)
     return {
         'custom_image_upload': upload_roles,
         'custom_image_delete': delete_roles,
-        'show_official_images': show_official,
-        'show_web_images': show_web,
     }
 
 
@@ -1856,8 +1849,6 @@ def _save_permissions(perms):
         app_config.add_section('permissions')
     app_config.set('permissions', 'custom_image_upload', ','.join(perms['custom_image_upload']))
     app_config.set('permissions', 'custom_image_delete', ','.join(perms['custom_image_delete']))
-    app_config.set('permissions', 'show_official_images', 'yes' if perms['show_official_images'] else 'no')
-    app_config.set('permissions', 'show_web_images', 'yes' if perms['show_web_images'] else 'no')
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
     with open(config_path, 'w', encoding='utf-8') as f:
         app_config.write(f)
@@ -1955,62 +1946,11 @@ def get_product_images(sku):
                     'uploaded_at': meta.get('uploaded_at', ''),
                 })
 
-    # Helper: find images in a directory with optional first-token matching
-    def _find_images_in_dir(img_dir, folder_map, use_first_token, code, source_label):
-        if not img_dir:
-            return []
-        results = []
-        target_dir = None
-        rel_folder = code
-
-        if use_first_token:
-            full_folder = folder_map.get(code)
-            if full_folder:
-                target_dir = os.path.join(img_dir, full_folder)
-                rel_folder = full_folder
-        else:
-            candidate = os.path.join(img_dir, code)
-            if os.path.isdir(candidate):
-                target_dir = candidate
-
-        if target_dir and os.path.isdir(target_dir):
-            files = [f for f in os.listdir(target_dir)
-                     if os.path.isfile(os.path.join(target_dir, f)) and not f.startswith('_hidden_')]
-            files.sort()
-            for f in files:
-                results.append({
-                    'url': f'/images/{rel_folder}/{f}',
-                    'source': source_label,
-                    'filename': f,
-                    'comment': '',
-                    'uploaded_by': '',
-                    'uploaded_at': '',
-                })
-        return results
-
-    # --- 2. Official images (primary dir) ---
-    if perms['show_official_images']:
-        for code in ([lookup_code, part_code] if lookup_code != part_code else [lookup_code]):
-            result = _find_images_in_dir(IMAGE_DIR_PRIMARY, _primary_folder_map, PRIMARY_MATCH_FIRST_TOKEN, code, 'official')
-            if result:
-                all_images.extend(result)
-                break
-
-    # --- 3. Web images (secondary dir) ---
-    if perms['show_web_images']:
-        for code in ([lookup_code, part_code] if lookup_code != part_code else [lookup_code]):
-            result = _find_images_in_dir(IMAGE_DIR_SECONDARY, _secondary_folder_map, SECONDARY_MATCH_FIRST_TOKEN, code, 'web')
-            if result:
-                all_images.extend(result)
-                break
-
     return jsonify({
         'images': all_images,
         'permissions': {
             'can_upload': user_role in perms['custom_image_upload'],
             'can_delete': user_role in perms['custom_image_delete'],
-            'show_official': perms['show_official_images'],
-            'show_web': perms['show_web_images'],
         }
     })
 
@@ -2206,10 +2146,7 @@ def set_permissions():
         perms['custom_image_upload'] = [r.strip() for r in data['custom_image_upload'] if r.strip()]
     if 'custom_image_delete' in data:
         perms['custom_image_delete'] = [r.strip() for r in data['custom_image_delete'] if r.strip()]
-    if 'show_official_images' in data:
-        perms['show_official_images'] = bool(data['show_official_images'])
-    if 'show_web_images' in data:
-        perms['show_web_images'] = bool(data['show_web_images'])
+
 
     _save_permissions(perms)
     print(f"[Permissions] Updated by {session.get('user', '?')}: {perms}")
@@ -2217,46 +2154,24 @@ def set_permissions():
 
 
 def _resolve_image_dir(sku):
-    """Resolve the image folder path and relative prefix for a product SKU.
+    """Resolve the custom image folder path for a product SKU.
     Returns list of (abs_dir_path, relative_folder_name) tuples."""
+    if not IMAGE_DIR_CUSTOM:
+        return []
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT part_code FROM products WHERE sku = ?', (sku,))
+    cursor.execute('SELECT part_code, suffix FROM products WHERE sku = ?', (sku,))
     row = cursor.fetchone()
     conn.close()
     if not row:
         return []
 
-    part_code = row['part_code']
-    lookup_code = part_code[:-1] if part_code.endswith('R') else part_code
-    results = []
-
-    for code in ([lookup_code, part_code] if lookup_code != part_code else [lookup_code]):
-        # Primary directory
-        if IMAGE_DIR_PRIMARY:
-            if PRIMARY_MATCH_FIRST_TOKEN:
-                full_folder = _primary_folder_map.get(code)
-                if full_folder:
-                    d = os.path.join(IMAGE_DIR_PRIMARY, full_folder)
-                    if os.path.isdir(d):
-                        results.append((d, full_folder))
-            else:
-                d = os.path.join(IMAGE_DIR_PRIMARY, code)
-                if os.path.isdir(d):
-                    results.append((d, code))
-        # Secondary directory
-        if IMAGE_DIR_SECONDARY:
-            if SECONDARY_MATCH_FIRST_TOKEN:
-                full_folder = _secondary_folder_map.get(code)
-                if full_folder:
-                    d = os.path.join(IMAGE_DIR_SECONDARY, full_folder)
-                    if os.path.isdir(d):
-                        results.append((d, full_folder))
-            else:
-                d = os.path.join(IMAGE_DIR_SECONDARY, code)
-                if os.path.isdir(d):
-                    results.append((d, code))
-    return results
+    sku_folder = f"{row['part_code']}_{row['suffix']}"
+    custom_dir = os.path.join(IMAGE_DIR_CUSTOM, sku_folder)
+    if os.path.isdir(custom_dir):
+        return [(custom_dir, f'custom/{sku_folder}')]
+    return []
 
 
 @app.route('/api/products/<sku>/images/hide', methods=['POST'])
