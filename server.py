@@ -1256,12 +1256,8 @@ def _reload_master_from_csv():
         if not sku_code or not suffix:
             continue
         sku = f"{sku_code}_{suffix}"
-        image_lookup_part = sku_code
-        if image_lookup_part.endswith('R'):
-            image_lookup_part = image_lookup_part[:-1]
-        thumbnail, image_count = find_thumbnail(image_lookup_part)
-        if not thumbnail and image_lookup_part != sku_code:
-            thumbnail, image_count = find_thumbnail(sku_code)
+        # Exact SKU match for images (type-specific)
+        thumbnail, image_count = find_thumbnail(sku)
         qty = safe_float(p.get('qty_on_hand', 0))
         sale_price = safe_float(p.get('selling_price', 0))
         unit_cost = safe_float(p.get('unit_cost', 0))
@@ -2814,13 +2810,8 @@ def refresh_master():
 
             sku = f"{sku_code}_{suffix}"
 
-            # Find thumbnail (strip trailing 'R' for image lookup)
-            image_lookup_part = sku_code
-            if image_lookup_part.endswith('R'):
-                image_lookup_part = image_lookup_part[:-1]
-            thumbnail, image_count = find_thumbnail(image_lookup_part)
-            if not thumbnail and image_lookup_part != sku_code:
-                thumbnail, image_count = find_thumbnail(sku_code)
+            # Exact SKU match for images (type-specific)
+            thumbnail, image_count = find_thumbnail(sku)
 
             qty = safe_float(p.get('qty_on_hand', 0))
             sale_price = safe_float(p.get('selling_price', 0))

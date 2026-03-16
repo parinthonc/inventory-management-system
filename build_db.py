@@ -56,28 +56,25 @@ SUFFIX_MAP = {
     'C': 'Chinese Budget'
 }
 
-def find_thumbnail(base_part_number):
-    """Find the first alphabetical image file in the part's custom image directory.
-    Scans IMAGE_DIR_CUSTOM for any folder starting with the base part number
-    (e.g. base_part_number='04111-20220-71' matches folder '04111-20220-71_G').
+def find_thumbnail(sku):
+    """Find the first alphabetical image file in the SKU's custom image directory.
+    Requires an EXACT folder name match (e.g. sku='22673-72031_N' matches only
+    folder '22673-72031_N', NOT '22673-72031_G').
     Returns (relative_path, file_count) or (None, 0)."""
     if not IMAGE_DIR_CUSTOM or not os.path.isdir(IMAGE_DIR_CUSTOM):
         return None, 0
 
-    # Look for any SKU folder that starts with this part number
-    prefix = base_part_number + '_'
-    for folder_name in sorted(os.listdir(IMAGE_DIR_CUSTOM)):
-        if folder_name.startswith(prefix) or folder_name == base_part_number:
-            folder_path = os.path.join(IMAGE_DIR_CUSTOM, folder_name)
-            if os.path.isdir(folder_path):
-                files = [f for f in os.listdir(folder_path)
-                         if os.path.isfile(os.path.join(folder_path, f))
-                         and not f.startswith('_')
-                         and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
-                if files:
-                    files.sort()
-                    # Return path relative to custom dir, prefixed with custom/
-                    return f'custom/{folder_name}/{files[0]}', len(files)
+    # Exact folder match only — no prefix matching across types
+    folder_path = os.path.join(IMAGE_DIR_CUSTOM, sku)
+    if os.path.isdir(folder_path):
+        files = [f for f in os.listdir(folder_path)
+                 if os.path.isfile(os.path.join(folder_path, f))
+                 and not f.startswith('_')
+                 and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+        if files:
+            files.sort()
+            # Return path relative to custom dir, prefixed with custom/
+            return f'custom/{sku}/{files[0]}', len(files)
 
     return None, 0
 
@@ -185,13 +182,8 @@ def main():
     cursor = conn.cursor()
     count = 0
     for sku, item in items.items():
-        # Get images
-        image_lookup_part = item['part_code']
-        if image_lookup_part.endswith('R'):
-            image_lookup_part = image_lookup_part[:-1]
-        thumbnail, image_count = find_thumbnail(image_lookup_part)
-        if not thumbnail and image_lookup_part != item['part_code']:
-            thumbnail, image_count = find_thumbnail(item['part_code'])
+        # Get images — exact SKU match (part_code + suffix)
+        thumbnail, image_count = find_thumbnail(sku)
 
         cursor.execute('''
             INSERT OR REPLACE INTO products (
