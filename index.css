@@ -2370,6 +2370,12 @@ h4 {
         font-size: 0.9rem;
     }
 
+    /* Modal body: allow scrolling so upload dialog is always reachable */
+    .modal-body {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
     /* Modal: stack gallery above details (vertical layout) */
     .modal-top-row {
         flex-direction: column;
@@ -2385,6 +2391,8 @@ h4 {
         flex-direction: row;
         align-items: stretch;
         flex-wrap: wrap;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .main-image-container {
@@ -2395,7 +2403,7 @@ h4 {
 
     .thumbnail-strip {
         flex-direction: column;
-        max-height: none;
+        max-height: 30vh;
         max-width: 60px;
         overflow-x: hidden;
         overflow-y: auto;
@@ -2414,10 +2422,55 @@ h4 {
         margin-top: 0.25rem;
     }
 
-    /* Upload dialog: full row */
+    /* Upload button: bright and visible */
+    .btn-upload-photo {
+        background: #2563eb;
+        border-color: #3b82f6;
+        color: #ffffff;
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+
+    .btn-upload-photo:hover {
+        background: #1d4ed8;
+        border-color: #2563eb;
+        color: #ffffff;
+    }
+
+    /* Upload dialog: full row with proper sizing */
     .upload-dialog {
         flex-basis: 100%;
         order: 5;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Upload dialog action buttons: larger touch targets */
+    .upload-dialog-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .upload-dialog-actions .btn {
+        width: 100%;
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+        justify-content: center;
+    }
+
+    /* Confirm upload button: bright green */
+    #btn-confirm-upload {
+        background: #059669 !important;
+        border-color: #10b981 !important;
+        color: #ffffff !important;
+    }
+
+    /* Cancel button: bright visible style */
+    #btn-cancel-upload {
+        background: rgba(255, 255, 255, 0.15) !important;
+        border: 2px solid rgba(255, 255, 255, 0.6) !important;
+        color: #ffffff !important;
+        font-weight: 500;
     }
 
     .modal-details {
@@ -2583,19 +2636,45 @@ h4 {
         padding-bottom: 7rem;
     }
 
-    /* Modal: fill full screen */
+    /* Modal: stack gallery vertically on mobile */
     .modal-gallery {
-        max-height: 25vh;
+        flex-direction: column;
+        max-height: none;
         padding: 0.5rem;
     }
 
+    .main-image-container {
+        max-height: 25vh;
+    }
+
     .thumbnail-strip {
-        max-width: 45px;
+        flex-direction: row;
+        max-width: 100%;
+        max-height: 55px;
+        overflow-x: auto;
+        overflow-y: hidden;
     }
 
     .gallery-thumb {
         width: 38px;
         height: 38px;
+    }
+
+    /* Upload controls: reset ordering since gallery is now column */
+    .custom-image-controls {
+        order: unset;
+        flex-basis: auto;
+    }
+
+    .image-caption-bar {
+        order: unset;
+        flex-basis: auto;
+    }
+
+    .upload-dialog {
+        order: unset;
+        flex-basis: auto;
+        width: 100%;
     }
 
     .modal-details {
