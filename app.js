@@ -1727,19 +1727,6 @@ function insertThumbnail(imgData, isActive) {
         wrapper.appendChild(badge);
     }
 
-    // Delete button for custom images (if user has permission)
-    if (source === 'custom' && _galleryPermissions.can_delete) {
-        const delBtn = document.createElement('button');
-        delBtn.className = 'gallery-delete-btn';
-        delBtn.title = 'ลบรูปนี้ / Delete this photo';
-        delBtn.innerHTML = '✕';
-        delBtn.onclick = (e) => {
-            e.stopPropagation();
-            deleteCustomImage(filename);
-        };
-        wrapper.appendChild(delBtn);
-    }
-
     wrapper.appendChild(img);
 
     // If this is the active (first) thumbnail, set tracking data
