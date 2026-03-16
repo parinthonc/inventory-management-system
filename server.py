@@ -1879,6 +1879,7 @@ def _get_custom_image_dir_for_sku(sku):
     Custom images are stored as: custom_dir/<part_code>_<suffix>/
     Returns (abs_path, sku_folder_name) or (None, None)."""
     if not IMAGE_DIR_CUSTOM:
+        print(f"[CustomImg] IMAGE_DIR_CUSTOM is empty!")
         return None, None
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -1886,8 +1887,10 @@ def _get_custom_image_dir_for_sku(sku):
     row = cursor.fetchone()
     conn.close()
     if not row:
+        print(f"[CustomImg] SKU not found in DB: '{sku}'")
         return None, None
     folder_name = f"{row['part_code']}_{row['suffix']}"
+    print(f"[CustomImg] SKU '{sku}' → folder '{folder_name}'")
     return os.path.join(IMAGE_DIR_CUSTOM, folder_name), folder_name
 
 
