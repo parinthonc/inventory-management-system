@@ -2,6 +2,10 @@
 # .gitignore for Inventory Management System
 # ============================================
 
+# --- Per-machine config (override paths in config.local.ini) ---
+config.ini
+config.local.ini
+
 # --- Database ---
 *.db
 *.db-journal

@@ -4,12 +4,23 @@ import re
 import glob
 import configparser
 
-# ─── Load configuration from config.ini ──────────────────────────────────────
+# ─── Load configuration (cascade: default → config.ini → local overrides) ────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, 'config.ini')
 
 config = configparser.ConfigParser()
-config.read(CONFIG_PATH)
+# Load in order: each file overrides values from the previous one.
+#   1. config.default.ini  – shared template (tracked by git)
+#   2. config.ini           – backward compat (gitignored going forward)
+#   3. config.local.ini     – per-machine overrides (gitignored)
+_config_files_loaded = config.read([
+    os.path.join(BASE_DIR, 'config.default.ini'),
+    os.path.join(BASE_DIR, 'config.ini'),
+    os.path.join(BASE_DIR, 'config.local.ini'),
+])
+if _config_files_loaded:
+    print(f"[Config] Loaded: {', '.join(os.path.basename(f) for f in _config_files_loaded)}")
+else:
+    print("[Config] WARNING: No config files found!")
 
 # Image directories (primary searched first, secondary as fallback)
 IMAGE_DIR_PRIMARY = config.get('images', 'primary_dir', fallback=r'C:\Users\Jan\Documents\CW\results_images\image').strip()

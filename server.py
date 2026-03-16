@@ -383,7 +383,11 @@ def admin_audit_log():
 import configparser as _configparser
 
 _backup_config = _configparser.ConfigParser()
-_backup_config.read(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'))
+_backup_config.read([
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.default.ini'),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini'),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.local.ini'),
+])
 
 BACKUP_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -422,7 +426,7 @@ def _create_backup(prefix='inventory'):
 
     # Also back up small config files alongside the DB
     _base_dir = os.path.dirname(os.path.abspath(__file__))
-    _config_files = ['config.ini', 'auth_secret.key', 'sync_config.json']
+    _config_files = ['config.default.ini', 'config.ini', 'config.local.ini', 'auth_secret.key', 'sync_config.json']
     for cfg_name in _config_files:
         src = os.path.join(_base_dir, cfg_name)
         if os.path.isfile(src):
