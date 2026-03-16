@@ -1,7 +1,6 @@
 import sqlite3
 import os
-import re
-import glob
+import csv
 import configparser
 
 # ─── Load configuration (cascade: default → config.ini → local overrides) ────
@@ -34,8 +33,6 @@ if IMAGE_DIR_CUSTOM:
 IMAGE_DIRS = [IMAGE_DIR_CUSTOM] if IMAGE_DIR_CUSTOM else []
 
 # Other paths
-ZIND_DIR = BASE_DIR
-
 def _resolve_path(raw_path, default):
     """Resolve a config path: if relative, make it relative to BASE_DIR."""
     p = raw_path.strip() if raw_path else default
@@ -43,11 +40,12 @@ def _resolve_path(raw_path, default):
         p = os.path.join(BASE_DIR, p)
     return p
 
-ARCHIVE_DIR = _resolve_path(config.get('paths', 'archive_dir', fallback=''), os.path.join(ZIND_DIR, 'zind archive'))
-ARCHIVED_LEDGER_DIR = _resolve_path(config.get('paths', 'archived_ledger_dir', fallback=''), os.path.join(ZIND_DIR, 'archived ledger'))
-DB_FILE = _resolve_path(config.get('paths', 'db_file', fallback=''), os.path.join(ZIND_DIR, 'inventory.db'))
-LOGO_FILE = _resolve_path(config.get('paths', 'logo_file', fallback=''), os.path.join(ZIND_DIR, 'logo', 'logo.png'))
+ARCHIVED_LEDGER_DIR = _resolve_path(config.get('paths', 'archived_ledger_dir', fallback=''), os.path.join(BASE_DIR, 'ledger'))
+DB_FILE = _resolve_path(config.get('paths', 'db_file', fallback=''), os.path.join(BASE_DIR, 'inventory.db'))
+LOGO_FILE = _resolve_path(config.get('paths', 'logo_file', fallback=''), os.path.join(BASE_DIR, 'logo', 'logo.png'))
 
+# CSV data source path
+PRODUCT_MASTER_CSV = os.path.join(BASE_DIR, 'product master table', 'product_master_active.csv')
 
 # Suffix meanings
 SUFFIX_MAP = {
@@ -57,27 +55,6 @@ SUFFIX_MAP = {
     'R': 'Chinese Made',
     'C': 'Chinese Budget'
 }
-
-def parse_number(num_str):
-    """Parse comma-separated number string to float."""
-    if not num_str:
-        return 0.0
-    try:
-        first_token = num_str.strip().split()[0]
-        return float(first_token.replace(',', ''))
-    except (ValueError, IndexError):
-        return 0.0
-
-def extract_date_from_filename(filename):
-    """Extract Gregorian date from ZIND filename (BE year)."""
-    m = re.match(r'ZIND\d+_(\d{4})-(\d{2})-(\d{2})_', filename)
-    if not m:
-        return None
-    year_be = int(m.group(1))
-    month = int(m.group(2))
-    day = int(m.group(3))
-    year_ce = year_be - 543
-    return f"{year_ce:04d}-{month:02d}-{day:02d}"
 
 def find_thumbnail(base_part_number):
     """Find the first alphabetical image file in the part's custom image directory.
@@ -104,57 +81,50 @@ def find_thumbnail(base_part_number):
 
     return None, 0
 
-def parse_zind_file(filepath):
-    """Parse a ZIND file and return dict of {sku: {fields...}}."""
-    with open(filepath, 'rb') as f:
-        raw_data = f.read()
+def safe_float(val):
+    """Parse a value to float, handling commas and empty strings."""
     try:
-        text = raw_data.decode('latin-1').encode('latin-1').decode('cp874')
-    except:
-        text = raw_data.decode('cp874', errors='ignore')
+        return float(str(val).replace(',', '')) if val else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+def parse_product_master_csv(filepath):
+    """Parse product_master_active.csv and return dict of {sku: {fields...}}.
+    
+    Only includes active products (the active CSV already filters these).
+    SKU is constructed as '{part_code}_{type}' to match the legacy ZIND format.
+    """
+    if not os.path.isfile(filepath):
+        print(f"ERROR: Product master CSV not found: {filepath}")
+        print("       Run the extraction script first:")
+        print("       python 'python script/extract_product_master.py'")
+        return {}
 
     items = {}
-    last_sku = None
+    with open(filepath, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            part_code = row.get('sku', '').strip()
+            suffix = row.get('type', '').strip()
+            if not part_code or not suffix:
+                continue
 
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith('D|'):
-            continue
-        fields = [f.strip() for f in line.split('|')]
-        if len(fields) < 8:
-            continue
-
-        part_code = fields[1].replace("Code.", "").strip()
-        warehouse = fields[3].strip() if len(fields) > 3 else ''
-
-        # Continuation row
-        if not part_code:
-            if last_sku and last_sku in items:
-                qty = int(parse_number(fields[8])) if len(fields) > 8 else 0
-                items[last_sku]['qty'] += qty
-                if warehouse:
-                    items[last_sku]['locations_set'].add(warehouse)
-            continue
-
-        suffix = fields[2].strip()
-        sku = f"{part_code}_{suffix}"
-
-        items[sku] = {
-            'sku': sku,
-            'part_code': part_code,
-            'suffix': suffix,
-            'suffix_label': SUFFIX_MAP.get(suffix, 'Unknown'),
-            'name_eng': fields[4] if len(fields) > 4 else '',
-            'name_thai': fields[5] if len(fields) > 5 else '',
-            'size': fields[6].replace("Code.", "").strip() if len(fields) > 6 else '',
-            'brand': fields[7] if len(fields) > 7 else '',
-            'qty': int(parse_number(fields[8])) if len(fields) > 8 else 0,
-            'sale_price': parse_number(fields[9]) if len(fields) > 9 else 0.0,
-            'unit_cost': parse_number(fields[10]) if len(fields) > 10 else 0.0,
-            'market_price': parse_number(fields[11]) if len(fields) > 11 else 0.0,
-            'locations_set': {warehouse} if warehouse else set()
-        }
-        last_sku = sku
+            sku = f"{part_code}_{suffix}"
+            items[sku] = {
+                'sku': sku,
+                'part_code': part_code,
+                'suffix': suffix,
+                'suffix_label': SUFFIX_MAP.get(suffix, 'Unknown'),
+                'name_eng': row.get('name_en', ''),
+                'name_thai': row.get('name_th', ''),
+                'size': row.get('specification', ''),
+                'brand': row.get('brand', ''),
+                'qty': int(safe_float(row.get('qty_on_hand', 0))),
+                'sale_price': safe_float(row.get('selling_price', 0)),
+                'unit_cost': safe_float(row.get('unit_cost', 0)),
+                'market_price': safe_float(row.get('market_price', 0)),
+                'locations': row.get('warehouse', ''),
+            }
 
     return items
 
@@ -198,31 +168,20 @@ def init_db():
 
 
 def main():
-    # 1. Collect all ZIND files
-    all_files = []
+    # 1. Parse product master CSV (active items only)
+    print(f"Reading product master from: {PRODUCT_MASTER_CSV}")
+    items = parse_product_master_csv(PRODUCT_MASTER_CSV)
 
-    # Archive files
-    if os.path.isdir(ARCHIVE_DIR):
-        for f in sorted(os.listdir(ARCHIVE_DIR)):
-            if f.upper().startswith('ZIND') and f.upper().endswith('.TXT'):
-                all_files.append(os.path.join(ARCHIVE_DIR, f))
+    if not items:
+        print("No products found. Aborting.")
+        return
 
-    # Main ZIND file(s) in root dir
-    for f in sorted(os.listdir(ZIND_DIR)):
-        if f.upper().startswith('ZIND') and f.upper().endswith('.TXT'):
-            all_files.append(os.path.join(ZIND_DIR, f))
-
-    print(f"Found {len(all_files)} ZIND files to process.")
+    print(f"Found {len(items)} active products to import.")
 
     # 2. Initialize DB
     conn = init_db()
 
-    # 3. Use the LATEST ZIND file to populate products table
-    latest_file = all_files[-1]  # They are sorted alphabetically = chronologically
-    print(f"\nUsing latest file for products: {os.path.basename(latest_file)}")
-
-    items = parse_zind_file(latest_file)
-
+    # 3. Insert products into the database
     cursor = conn.cursor()
     count = 0
     for sku, item in items.items():
@@ -234,8 +193,6 @@ def main():
         if not thumbnail and image_lookup_part != item['part_code']:
             thumbnail, image_count = find_thumbnail(item['part_code'])
 
-        locations = ', '.join(sorted(list(item['locations_set'])))
-
         cursor.execute('''
             INSERT OR REPLACE INTO products (
                 sku, part_code, suffix, suffix_label, name_eng, name_thai, size, brand,
@@ -245,7 +202,7 @@ def main():
             item['sku'], item['part_code'], item['suffix'], item['suffix_label'],
             item['name_eng'], item['name_thai'], item['size'], item['brand'],
             item['qty'], item['sale_price'], item['unit_cost'], item['market_price'],
-            thumbnail or '', image_count, locations
+            thumbnail or '', image_count, item['locations']
         ))
         count += 1
         if count % 2000 == 0:
@@ -254,7 +211,7 @@ def main():
 
     conn.commit()
     conn.close()
-    print(f"\nDone! {count} products loaded.")
+    print(f"\nDone! {count} active products loaded.")
     print(f"Database: {DB_FILE}")
 
 if __name__ == '__main__':
