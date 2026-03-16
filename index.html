@@ -179,6 +179,67 @@
                     </label>
                 </div>
             </div>
+
+            <!-- Image Permissions -->
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: var(--radius-md);">
+                <h3 style="margin: 0 0 0.75rem; font-size: 0.9rem; color: var(--text-secondary);">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="vertical-align: -3px; margin-right: 0.3rem;">
+                        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    Image Permissions
+                </h3>
+
+                <!-- Image Tier Visibility -->
+                <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-primary);">🏭 Show Official Images (Secondary Tier)</span>
+                            <p style="margin: 0.15rem 0 0; font-size: 0.7rem; color: var(--text-tertiary);">Scraped from manufacturer sites</p>
+                        </div>
+                        <label class="backup-toggle" title="Show official images">
+                            <input type="checkbox" id="perm-show-official" checked>
+                            <span class="backup-toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                        <div>
+                            <span style="font-size: 0.8rem; font-weight: 500; color: var(--text-primary);">🌐 Show Web Images (Tertiary Tier)</span>
+                            <p style="margin: 0.15rem 0 0; font-size: 0.7rem; color: var(--text-tertiary);">Scraped from Google Images</p>
+                        </div>
+                        <label class="backup-toggle" title="Show web images">
+                            <input type="checkbox" id="perm-show-web" checked>
+                            <span class="backup-toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Upload/Delete Permissions -->
+                <div style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.75rem;">
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 0.5rem;">Who can upload / delete custom photos:</p>
+                    <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+                        <div>
+                            <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary); display: block; margin-bottom: 0.3rem;">📤 Upload</span>
+                            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="perm-upload-admin" checked disabled> Admin
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="perm-upload-viewer" checked> Viewer / Guest
+                            </label>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.75rem; font-weight: 500; color: var(--text-primary); display: block; margin-bottom: 0.3rem;">🗑️ Delete</span>
+                            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="perm-delete-admin" checked disabled> Admin
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;">
+                                <input type="checkbox" id="perm-delete-viewer" checked> Viewer / Guest
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div id="perm-save-msg" class="hidden" style="margin-top: 0.5rem; font-size: 0.8rem; color: #34d399;"></div>
+            </div>
         </div>
     </div>
 
@@ -918,6 +979,44 @@
                         </div>
                         <div class="thumbnail-strip" id="modal-thumbnails">
                             <!-- Populated by JS -->
+                        </div>
+                        <!-- Image caption/comment display -->
+                        <div id="image-caption-bar" class="image-caption-bar hidden">
+                            <span id="image-caption-text"></span>
+                            <span id="image-caption-meta" class="image-caption-meta"></span>
+                        </div>
+                        <!-- Upload button (shown when user has permission) -->
+                        <div id="custom-image-controls" class="custom-image-controls hidden">
+                            <button id="btn-upload-photo" class="btn-upload-photo" title="อัปโหลดรูปภาพ / Upload photo">
+                                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                                    <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"></path>
+                                    <circle cx="12" cy="13" r="4"></circle>
+                                </svg>
+                                <span>Upload Photo</span>
+                            </button>
+                            <input type="file" id="custom-image-input" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+                        </div>
+                        <!-- Upload dialog (hidden, shown during upload) -->
+                        <div id="upload-dialog" class="upload-dialog hidden">
+                            <div class="upload-dialog-preview" id="upload-preview-area"></div>
+                            <div class="upload-dialog-fields">
+                                <label for="upload-comment" class="upload-label">Comment (optional)</label>
+                                <input type="text" id="upload-comment" class="upload-comment-input" placeholder="เพิ่มคำอธิบาย / Add a description...">
+                            </div>
+                            <div class="upload-dialog-actions">
+                                <button id="btn-cancel-upload" class="btn btn-outline btn-compact">Cancel</button>
+                                <button id="btn-confirm-upload" class="btn btn-primary btn-compact">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:0.3rem">
+                                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
+                                        <polyline points="17 8 12 3 7 8"></polyline>
+                                        <line x1="12" y1="3" x2="12" y2="15"></line>
+                                    </svg>
+                                    Upload
+                                </button>
+                            </div>
+                            <div id="upload-progress" class="upload-progress hidden">
+                                <div class="upload-progress-bar" id="upload-progress-bar"></div>
+                            </div>
                         </div>
                     </div>
 

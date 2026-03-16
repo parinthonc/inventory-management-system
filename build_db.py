@@ -22,12 +22,18 @@ if _config_files_loaded:
 else:
     print("[Config] WARNING: No config files found!")
 
-# Image directories (primary searched first, secondary as fallback)
+# Image directories (custom searched first, then primary, then secondary)
+IMAGE_DIR_CUSTOM = config.get('images', 'custom_dir', fallback='').strip()
+if IMAGE_DIR_CUSTOM and not os.path.isabs(IMAGE_DIR_CUSTOM):
+    IMAGE_DIR_CUSTOM = os.path.join(BASE_DIR, IMAGE_DIR_CUSTOM)
+if IMAGE_DIR_CUSTOM:
+    os.makedirs(IMAGE_DIR_CUSTOM, exist_ok=True)
+    print(f"[Config] Custom image dir: {IMAGE_DIR_CUSTOM}")
 IMAGE_DIR_PRIMARY = config.get('images', 'primary_dir', fallback=r'C:\Users\Jan\Documents\CW\results_images\image').strip()
 IMAGE_DIR_SECONDARY = config.get('images', 'secondary_dir', fallback='').strip()
 PRIMARY_MATCH_FIRST_TOKEN = config.getboolean('images', 'primary_match_first_token', fallback=False)
 SECONDARY_MATCH_FIRST_TOKEN = config.getboolean('images', 'secondary_match_first_token', fallback=False)
-IMAGE_DIRS = [d for d in [IMAGE_DIR_PRIMARY, IMAGE_DIR_SECONDARY] if d]
+IMAGE_DIRS = [d for d in [IMAGE_DIR_CUSTOM, IMAGE_DIR_PRIMARY, IMAGE_DIR_SECONDARY] if d]
 
 # Keep a single IMAGE_DIR for backward compatibility (used by server.py imports)
 IMAGE_DIR = IMAGE_DIR_PRIMARY

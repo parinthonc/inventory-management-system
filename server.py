@@ -52,8 +52,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_db import (SUFFIX_MAP, find_thumbnail,
                       IMAGE_DIRS, IMAGE_DIR, IMAGE_DIR_PRIMARY, IMAGE_DIR_SECONDARY,
+                      IMAGE_DIR_CUSTOM,
                       PRIMARY_MATCH_FIRST_TOKEN, SECONDARY_MATCH_FIRST_TOKEN,
-                      _primary_folder_map, _secondary_folder_map, LOGO_FILE, ARCHIVED_LEDGER_DIR)
+                      _primary_folder_map, _secondary_folder_map, LOGO_FILE, ARCHIVED_LEDGER_DIR,
+                      config as app_config)
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'inventory.db')
 INVOICE_DIR = os.path.join(os.path.dirname(__file__), 'invoice')
@@ -1832,11 +1834,89 @@ def get_product_detail(sku):
     return jsonify(product)
 
 
-@app.route('/api/products/<sku>/images')
-def get_product_images(sku):
+# ─── Permissions helper ──────────────────────────────────────────────────────
+
+def _load_permissions():
+    """Read permission settings from config.ini."""
+    upload_roles = [r.strip() for r in app_config.get('permissions', 'custom_image_upload', fallback='admin,viewer').split(',')]
+    delete_roles = [r.strip() for r in app_config.get('permissions', 'custom_image_delete', fallback='admin,viewer').split(',')]
+    show_official = app_config.getboolean('permissions', 'show_official_images', fallback=True)
+    show_web = app_config.getboolean('permissions', 'show_web_images', fallback=True)
+    return {
+        'custom_image_upload': upload_roles,
+        'custom_image_delete': delete_roles,
+        'show_official_images': show_official,
+        'show_web_images': show_web,
+    }
+
+
+def _save_permissions(perms):
+    """Write permission settings back to config.ini."""
+    if not app_config.has_section('permissions'):
+        app_config.add_section('permissions')
+    app_config.set('permissions', 'custom_image_upload', ','.join(perms['custom_image_upload']))
+    app_config.set('permissions', 'custom_image_delete', ','.join(perms['custom_image_delete']))
+    app_config.set('permissions', 'show_official_images', 'yes' if perms['show_official_images'] else 'no')
+    app_config.set('permissions', 'show_web_images', 'yes' if perms['show_web_images'] else 'no')
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.ini')
+    with open(config_path, 'w', encoding='utf-8') as f:
+        app_config.write(f)
+
+
+def _check_permission(action):
+    """Check if the current session user has permission for the given action.
+    Returns (allowed: bool, error_response_or_None)."""
+    perms = _load_permissions()
+    allowed_roles = perms.get(action, [])
+    user_role = session.get('role', 'viewer')  # default to viewer (guest sessions)
+    if user_role in allowed_roles:
+        return True, None
+    return False, jsonify({'error': f'Permission denied: {action}'}), 403
+
+
+def _get_custom_image_dir_for_sku(sku):
+    """Get the custom image directory path for a product SKU.
+    Custom images are stored as: custom_dir/<part_code>_<suffix>/
+    Returns (abs_path, sku_folder_name) or (None, None)."""
+    if not IMAGE_DIR_CUSTOM:
+        return None, None
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT part_code FROM products WHERE sku = ?', (sku,))
+    cursor.execute('SELECT part_code, suffix FROM products WHERE sku = ?', (sku,))
+    row = cursor.fetchone()
+    conn.close()
+    if not row:
+        return None, None
+    folder_name = f"{row['part_code']}_{row['suffix']}"
+    return os.path.join(IMAGE_DIR_CUSTOM, folder_name), folder_name
+
+
+def _load_custom_metadata(custom_dir_path):
+    """Load _metadata.json from a custom image directory."""
+    meta_path = os.path.join(custom_dir_path, '_metadata.json')
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _save_custom_metadata(custom_dir_path, metadata):
+    """Save _metadata.json to a custom image directory."""
+    meta_path = os.path.join(custom_dir_path, '_metadata.json')
+    with open(meta_path, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+
+@app.route('/api/products/<sku>/images')
+def get_product_images(sku):
+    """Return product images organized by source tier: custom → official → web.
+    Response format: { images: [...], permissions: {...} }"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT part_code, suffix FROM products WHERE sku = ?', (sku,))
     row = cursor.fetchone()
     conn.close()
 
@@ -1844,46 +1924,293 @@ def get_product_images(sku):
         return jsonify({'error': 'Product not found'}), 404
 
     part_code = row['part_code']
+    suffix = row['suffix']
     lookup_code = part_code[:-1] if part_code.endswith('R') else part_code
 
-    images = []
+    perms = _load_permissions()
+    user_role = session.get('role', 'viewer')
+    all_images = []
 
-    # Helper: find images in a single directory with optional first-token matching
-    def _find_images_in_dir(img_dir, folder_map, use_first_token, code):
+    # --- 1. Custom images (always shown) ---
+    if IMAGE_DIR_CUSTOM:
+        sku_folder = f"{part_code}_{suffix}"
+        custom_dir = os.path.join(IMAGE_DIR_CUSTOM, sku_folder)
+        if os.path.isdir(custom_dir):
+            metadata = _load_custom_metadata(custom_dir)
+            files = [f for f in os.listdir(custom_dir)
+                     if os.path.isfile(os.path.join(custom_dir, f))
+                     and not f.startswith('_') and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+            files.sort()
+            for f in files:
+                meta = metadata.get(f, {})
+                all_images.append({
+                    'url': f'/images/custom/{sku_folder}/{f}',
+                    'source': 'custom',
+                    'filename': f,
+                    'comment': meta.get('comment', ''),
+                    'uploaded_by': meta.get('uploaded_by', ''),
+                    'uploaded_at': meta.get('uploaded_at', ''),
+                })
+
+    # Helper: find images in a directory with optional first-token matching
+    def _find_images_in_dir(img_dir, folder_map, use_first_token, code, source_label):
         if not img_dir:
-            return None
+            return []
+        results = []
+        target_dir = None
+        rel_folder = code
+
         if use_first_token:
             full_folder = folder_map.get(code)
             if full_folder:
-                part_dir = os.path.join(img_dir, full_folder)
-                files = [f for f in os.listdir(part_dir)
-                         if os.path.isfile(os.path.join(part_dir, f)) and not f.startswith('_hidden_')]
-                if files:
-                    files.sort()
-                    return [f"/images/{full_folder}/{f}" for f in files]
+                target_dir = os.path.join(img_dir, full_folder)
+                rel_folder = full_folder
         else:
-            part_dir = os.path.join(img_dir, code)
-            if os.path.isdir(part_dir):
-                files = [f for f in os.listdir(part_dir)
-                         if os.path.isfile(os.path.join(part_dir, f)) and not f.startswith('_hidden_')]
-                if files:
-                    files.sort()
-                    return [f"/images/{code}/{f}" for f in files]
-        return None
+            candidate = os.path.join(img_dir, code)
+            if os.path.isdir(candidate):
+                target_dir = candidate
 
-    # Search for images across configured directories
-    for code in [lookup_code, part_code] if lookup_code != part_code else [lookup_code]:
-        # 1. Try primary directory
-        result = _find_images_in_dir(IMAGE_DIR_PRIMARY, _primary_folder_map, PRIMARY_MATCH_FIRST_TOKEN, code)
-        if result:
-            return jsonify(result)
+        if target_dir and os.path.isdir(target_dir):
+            files = [f for f in os.listdir(target_dir)
+                     if os.path.isfile(os.path.join(target_dir, f)) and not f.startswith('_hidden_')]
+            files.sort()
+            for f in files:
+                results.append({
+                    'url': f'/images/{rel_folder}/{f}',
+                    'source': source_label,
+                    'filename': f,
+                    'comment': '',
+                    'uploaded_by': '',
+                    'uploaded_at': '',
+                })
+        return results
 
-        # 2. Try secondary directory
-        result = _find_images_in_dir(IMAGE_DIR_SECONDARY, _secondary_folder_map, SECONDARY_MATCH_FIRST_TOKEN, code)
-        if result:
-            return jsonify(result)
+    # --- 2. Official images (primary dir) ---
+    if perms['show_official_images']:
+        for code in ([lookup_code, part_code] if lookup_code != part_code else [lookup_code]):
+            result = _find_images_in_dir(IMAGE_DIR_PRIMARY, _primary_folder_map, PRIMARY_MATCH_FIRST_TOKEN, code, 'official')
+            if result:
+                all_images.extend(result)
+                break
 
-    return jsonify(images)
+    # --- 3. Web images (secondary dir) ---
+    if perms['show_web_images']:
+        for code in ([lookup_code, part_code] if lookup_code != part_code else [lookup_code]):
+            result = _find_images_in_dir(IMAGE_DIR_SECONDARY, _secondary_folder_map, SECONDARY_MATCH_FIRST_TOKEN, code, 'web')
+            if result:
+                all_images.extend(result)
+                break
+
+    return jsonify({
+        'images': all_images,
+        'permissions': {
+            'can_upload': user_role in perms['custom_image_upload'],
+            'can_delete': user_role in perms['custom_image_delete'],
+            'show_official': perms['show_official_images'],
+            'show_web': perms['show_web_images'],
+        }
+    })
+
+
+@app.route('/images/custom/<path:filename>')
+def serve_custom_image(filename):
+    """Serve a custom-uploaded image from the custom image directory."""
+    if not IMAGE_DIR_CUSTOM:
+        return 'Not found', 404
+    full_path = os.path.join(IMAGE_DIR_CUSTOM, filename)
+    if os.path.isfile(full_path):
+        return send_from_directory(IMAGE_DIR_CUSTOM, filename)
+    return 'Not found', 404
+
+
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
+MAX_IMAGE_DIMENSION = 1200  # px
+
+
+@app.route('/api/products/<sku>/images/upload', methods=['POST'])
+def upload_product_image(sku):
+    """Upload one or more custom images for a product.
+    Accepts multipart/form-data with 'files' field and optional 'comment' field."""
+    # Permission check
+    perm_result = _check_permission('custom_image_upload')
+    if perm_result[0] is False:
+        return perm_result[1], perm_result[2] if len(perm_result) > 2 else 403
+
+    custom_dir, sku_folder = _get_custom_image_dir_for_sku(sku)
+    if not custom_dir:
+        return jsonify({'error': 'Product not found or custom image dir not configured'}), 404
+
+    os.makedirs(custom_dir, exist_ok=True)
+
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    comment = request.form.get('comment', '').strip()
+    uploader = session.get('user', 'anonymous')
+    uploaded = []
+    errors = []
+
+    # Load existing metadata
+    metadata = _load_custom_metadata(custom_dir)
+
+    for file in files:
+        if not file.filename:
+            continue
+
+        # Validate extension
+        ext = os.path.splitext(file.filename)[1].lower()
+        if ext not in ALLOWED_IMAGE_EXTENSIONS:
+            errors.append(f'{file.filename}: invalid type (allowed: jpg, png, webp)')
+            continue
+
+        # Read file data and validate size
+        file_data = file.read()
+        if len(file_data) > MAX_IMAGE_SIZE:
+            errors.append(f'{file.filename}: too large (max {MAX_IMAGE_SIZE // 1024 // 1024}MB)')
+            continue
+
+        # Generate timestamped filename
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Count existing files with same timestamp prefix to avoid collisions
+        existing = [f for f in os.listdir(custom_dir) if f.startswith(timestamp)]
+        seq = len(existing) + 1
+        save_filename = f'{timestamp}_{seq}.jpg'
+        save_path = os.path.join(custom_dir, save_filename)
+
+        try:
+            # Try to resize with Pillow if available
+            try:
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(file_data))
+
+                # Auto-rotate based on EXIF orientation
+                try:
+                    from PIL import ExifTags
+                    for orientation_key in ExifTags.TAGS.keys():
+                        if ExifTags.TAGS[orientation_key] == 'Orientation':
+                            break
+                    exif = img._getexif()
+                    if exif:
+                        orientation = exif.get(orientation_key)
+                        if orientation == 3:
+                            img = img.rotate(180, expand=True)
+                        elif orientation == 6:
+                            img = img.rotate(270, expand=True)
+                        elif orientation == 8:
+                            img = img.rotate(90, expand=True)
+                except Exception:
+                    pass  # No EXIF data, skip rotation
+
+                # Convert to RGB if necessary (e.g., RGBA PNGs)
+                if img.mode in ('RGBA', 'P', 'LA'):
+                    img = img.convert('RGB')
+
+                # Resize if larger than max dimension
+                w, h = img.size
+                if max(w, h) > MAX_IMAGE_DIMENSION:
+                    ratio = MAX_IMAGE_DIMENSION / max(w, h)
+                    new_size = (int(w * ratio), int(h * ratio))
+                    img = img.resize(new_size, Image.LANCZOS)
+
+                img.save(save_path, 'JPEG', quality=85, optimize=True)
+                print(f"[CustomImage] Saved (Pillow resized): {save_path}")
+
+            except ImportError:
+                # Pillow not available — save raw file
+                with open(save_path, 'wb') as f:
+                    f.write(file_data)
+                print(f"[CustomImage] Saved (raw, no Pillow): {save_path}")
+
+            # Update metadata
+            metadata[save_filename] = {
+                'comment': comment,
+                'uploaded_by': uploader,
+                'uploaded_at': datetime.datetime.now().isoformat(),
+                'original_filename': file.filename,
+            }
+
+            uploaded.append({
+                'filename': save_filename,
+                'url': f'/images/custom/{sku_folder}/{save_filename}',
+            })
+
+        except Exception as e:
+            errors.append(f'{file.filename}: {str(e)}')
+            print(f"[CustomImage] Error saving {file.filename}: {e}")
+
+    # Save metadata
+    if uploaded:
+        _save_custom_metadata(custom_dir, metadata)
+
+    print(f"[CustomImage] Upload for {sku}: {len(uploaded)} saved, {len(errors)} errors")
+    return jsonify({
+        'success': len(uploaded) > 0,
+        'uploaded': uploaded,
+        'errors': errors,
+    })
+
+
+@app.route('/api/products/<sku>/images/custom', methods=['DELETE'])
+def delete_custom_image(sku):
+    """Delete a custom-uploaded image file."""
+    perm_result = _check_permission('custom_image_delete')
+    if perm_result[0] is False:
+        return perm_result[1], perm_result[2] if len(perm_result) > 2 else 403
+
+    data = request.get_json(force=True)
+    filename = data.get('filename', '').strip()
+    if not filename or '/' in filename or '\\' in filename:
+        return jsonify({'success': False, 'message': 'Invalid filename'}), 400
+
+    custom_dir, sku_folder = _get_custom_image_dir_for_sku(sku)
+    if not custom_dir:
+        return jsonify({'success': False, 'message': 'Product not found'}), 404
+
+    filepath = os.path.join(custom_dir, filename)
+    if not os.path.isfile(filepath):
+        return jsonify({'success': False, 'message': 'File not found'}), 404
+
+    try:
+        os.remove(filepath)
+        # Remove from metadata
+        metadata = _load_custom_metadata(custom_dir)
+        metadata.pop(filename, None)
+        _save_custom_metadata(custom_dir, metadata)
+        print(f"[CustomImage] Deleted: {filepath}")
+        return jsonify({'success': True, 'message': f'{filename} deleted'})
+    except OSError as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/api/permissions', methods=['GET'])
+def get_permissions():
+    """Return current permission settings."""
+    perms = _load_permissions()
+    return jsonify(perms)
+
+
+@app.route('/api/permissions', methods=['POST'])
+@admin_required
+def set_permissions():
+    """Update permission settings (admin only)."""
+    data = request.get_json(force=True)
+    perms = _load_permissions()
+
+    if 'custom_image_upload' in data:
+        perms['custom_image_upload'] = [r.strip() for r in data['custom_image_upload'] if r.strip()]
+    if 'custom_image_delete' in data:
+        perms['custom_image_delete'] = [r.strip() for r in data['custom_image_delete'] if r.strip()]
+    if 'show_official_images' in data:
+        perms['show_official_images'] = bool(data['show_official_images'])
+    if 'show_web_images' in data:
+        perms['show_web_images'] = bool(data['show_web_images'])
+
+    _save_permissions(perms)
+    print(f"[Permissions] Updated by {session.get('user', '?')}: {perms}")
+    return jsonify({'success': True, 'permissions': perms})
 
 
 def _resolve_image_dir(sku):

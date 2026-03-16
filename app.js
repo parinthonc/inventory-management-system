@@ -442,6 +442,7 @@ async function init() {
     if (_initialized) return;
     _initialized = true;
     setupEventListeners();
+    _setupUploadHandlers();
     await fetchStats();
     await fetchFilters();
     await fetchProducts();
@@ -1052,12 +1053,28 @@ async function fetchProductDetail(sku) {
     }
 }
 
+// Track current gallery permissions and image data for re-use by upload/delete
+let _galleryPermissions = { can_upload: false, can_delete: false };
+let _galleryImages = [];  // array of {url, source, filename, comment, uploaded_by, uploaded_at}
+
 async function fetchProductImages(sku) {
     try {
         const res = await fetch(`/api/products/${sku}/images`);
-        return await res.json();
+        const data = await res.json();
+        // New API returns { images: [...], permissions: {...} }
+        if (data && data.images) {
+            _galleryPermissions = data.permissions || { can_upload: false, can_delete: false };
+            _galleryImages = data.images;
+            return data.images;
+        }
+        // Fallback for any edge case
+        _galleryPermissions = { can_upload: false, can_delete: false };
+        _galleryImages = [];
+        return [];
     } catch (err) {
         console.error("Error fetching product images:", err);
+        _galleryPermissions = { can_upload: false, can_delete: false };
+        _galleryImages = [];
         return [];
     }
 }
@@ -1609,34 +1626,47 @@ async function openModalInternal(product) {
         els.mainImageTrashBtn.classList.add('hidden');
     }
     els.modalThumbnails.innerHTML = '';
+    // Reset caption bar
+    const captionBar = document.getElementById('image-caption-bar');
+    if (captionBar) captionBar.classList.add('hidden');
 
     // Show modal
     els.modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden'; // Prevent background scrolling
 
-    // Fetch and populate image gallery if there might be multiple
-    if (product.thumbnail) {
-        // Show loading state for thumbs if image count > 1
-        if (product.image_count > 1) {
-            els.modalThumbnails.innerHTML = `<div class="text-muted" style="font-size:0.8rem">Loading gallery...</div>`;
-        } else {
-            // Just one image anyway
-            insertThumbnail(product.thumbnail, true);
-        }
+    // Always fetch images (even with 0 image_count, custom images may exist)
+    const images = await fetchProductImages(product.sku);
+    els.modalThumbnails.innerHTML = ''; // Clear loading
 
-        // Fetch all images
-        const images = await fetchProductImages(product.sku);
-        if (images && images.length > 0) {
-            els.modalThumbnails.innerHTML = ''; // Clear loading
+    if (images && images.length > 0) {
+        const firstImg = images[0];
+        const firstUrl = firstImg.url || (firstImg.startsWith?.('/') ? firstImg : `/images/${firstImg}`);
+        els.modalMainImg.src = firstUrl;
+        els.modalMainImg.style.display = 'block';
+        els.mainImageTrashBtn.classList.remove('hidden');
 
-            images.forEach((imgPath, idx) => {
-                insertThumbnail(imgPath, idx === 0);
-            });
-        }
-
-        // Add hidden images toggle below thumbnails
-        insertHiddenToggle();
+        images.forEach((imgData, idx) => {
+            insertThumbnail(imgData, idx === 0);
+        });
+    } else if (!product.thumbnail) {
+        // No images at all
+        els.modalMainImg.style.display = 'none';
+        els.modalMainImg.src = '';
+        els.mainImageTrashBtn.classList.add('hidden');
     }
+
+    // Show upload button if user has permission
+    const uploadControls = document.getElementById('custom-image-controls');
+    if (uploadControls) {
+        if (_galleryPermissions.can_upload) {
+            uploadControls.classList.remove('hidden');
+        } else {
+            uploadControls.classList.add('hidden');
+        }
+    }
+
+    // Add hidden images toggle below thumbnails
+    insertHiddenToggle();
 
     // Fetch and render stock history
     els.modalHistory.innerHTML = '<p class="text-muted">Loading history...</p>';
@@ -1653,34 +1683,102 @@ async function openModalInternal(product) {
     fetchAndRenderTitles(product.sku);
 }
 
-function insertThumbnail(imgPath, isActive) {
-    // If path doesn't start with /images/ (from initial thumbnail prop), prepend it
-    const src = imgPath.startsWith('/images/') ? imgPath : `/images/${imgPath}`;
-    // Extract just the filename from the path for the hide API
-    const filename = imgPath.split('/').pop();
+function insertThumbnail(imgData, isActive) {
+    // Handle both old format (string path) and new format (object with url/source/etc.)
+    const isObj = typeof imgData === 'object' && imgData !== null;
+    const imgPath = isObj ? imgData.url : imgData;
+    const source = isObj ? (imgData.source || '') : '';
+    const filename = isObj ? (imgData.filename || imgPath.split('/').pop()) : imgPath.split('/').pop();
+    const comment = isObj ? (imgData.comment || '') : '';
+    const uploadedBy = isObj ? (imgData.uploaded_by || '') : '';
+    const uploadedAt = isObj ? (imgData.uploaded_at || '') : '';
+
+    const src = imgPath.startsWith('/') ? imgPath : `/images/${imgPath}`;
+
+    // Wrapper for positioning badge/delete button
+    const wrapper = document.createElement('div');
+    wrapper.className = 'gallery-thumb-wrapper';
+    if (source === 'custom') wrapper.classList.add('custom-thumb');
 
     const img = document.createElement('img');
     img.src = src;
     img.className = `gallery-thumb ${isActive ? 'active' : ''}`;
+    if (comment) img.title = comment;
 
     img.onclick = () => {
         // Update main image
         els.modalMainImg.src = src;
-
-        // Track which file is currently shown (for the main-image trash button)
         els.modalMainImg.dataset.filename = filename;
+        els.modalMainImg.dataset.source = source;
 
         // Update active state
         document.querySelectorAll('.gallery-thumb').forEach(el => el.classList.remove('active'));
         img.classList.add('active');
+
+        // Update caption bar
+        _updateCaptionBar(comment, uploadedBy, uploadedAt, source);
     };
 
-    // If this is the active (first) thumbnail, set the filename on the main image
-    if (isActive) {
-        els.modalMainImg.dataset.filename = filename;
+    // Source badge
+    if (source) {
+        const badge = document.createElement('span');
+        badge.className = `gallery-source-badge source-${source}`;
+        badge.textContent = source === 'custom' ? '📷' : source === 'official' ? '🏭' : '🌐';
+        wrapper.appendChild(badge);
     }
 
-    els.modalThumbnails.appendChild(img);
+    // Delete button for custom images (if user has permission)
+    if (source === 'custom' && _galleryPermissions.can_delete) {
+        const delBtn = document.createElement('button');
+        delBtn.className = 'gallery-delete-btn';
+        delBtn.title = 'ลบรูปนี้ / Delete this photo';
+        delBtn.innerHTML = '✕';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteCustomImage(filename);
+        };
+        wrapper.appendChild(delBtn);
+    }
+
+    wrapper.appendChild(img);
+
+    // If this is the active (first) thumbnail, set tracking data
+    if (isActive) {
+        els.modalMainImg.dataset.filename = filename;
+        els.modalMainImg.dataset.source = source;
+        _updateCaptionBar(comment, uploadedBy, uploadedAt, source);
+    }
+
+    els.modalThumbnails.appendChild(wrapper);
+}
+
+function _updateCaptionBar(comment, uploadedBy, uploadedAt, source) {
+    const captionBar = document.getElementById('image-caption-bar');
+    const captionText = document.getElementById('image-caption-text');
+    const captionMeta = document.getElementById('image-caption-meta');
+    if (!captionBar) return;
+
+    if (comment || (source === 'custom' && uploadedBy)) {
+        captionBar.classList.remove('hidden');
+        captionText.textContent = comment || '';
+
+        let metaParts = [];
+        if (uploadedBy) metaParts.push(`by ${uploadedBy}`);
+        if (uploadedAt) {
+            try {
+                const d = new Date(uploadedAt);
+                metaParts.push(d.toLocaleDateString('th-TH'));
+            } catch (e) {
+                metaParts.push(uploadedAt);
+            }
+        }
+        if (source && source !== 'custom') {
+            metaParts.push(source === 'official' ? 'Official' : 'Web');
+        }
+        captionMeta.textContent = metaParts.join(' · ');
+    } else {
+        captionBar.classList.add('hidden');
+    }
 }
 
 async function hideImage(filename) {
@@ -1733,11 +1831,14 @@ async function refreshGallery() {
     els.modalThumbnails.innerHTML = '';
 
     if (images && images.length > 0) {
-        els.modalMainImg.src = images[0].startsWith('/images/') ? images[0] : `/images/${images[0]}`;
+        const firstImg = images[0];
+        const firstUrl = typeof firstImg === 'object' ? firstImg.url : firstImg;
+        const src = firstUrl.startsWith('/') ? firstUrl : `/images/${firstUrl}`;
+        els.modalMainImg.src = src;
         els.modalMainImg.style.display = 'block';
         els.mainImageTrashBtn.classList.remove('hidden');
-        images.forEach((imgPath, idx) => {
-            insertThumbnail(imgPath, idx === 0);
+        images.forEach((imgData, idx) => {
+            insertThumbnail(imgData, idx === 0);
         });
     } else {
         els.modalMainImg.style.display = 'none';
@@ -1745,8 +1846,140 @@ async function refreshGallery() {
         els.mainImageTrashBtn.classList.add('hidden');
     }
 
+    // Show/hide upload button based on permissions
+    const uploadControls = document.getElementById('custom-image-controls');
+    if (uploadControls) {
+        if (_galleryPermissions.can_upload) {
+            uploadControls.classList.remove('hidden');
+        } else {
+            uploadControls.classList.add('hidden');
+        }
+    }
+
     // Re-insert hidden toggle
     insertHiddenToggle();
+}
+
+// ─── Custom Image Upload ────────────────────────────────────────────────────
+
+let _pendingUploadFiles = null;
+
+function _setupUploadHandlers() {
+    const uploadBtn = document.getElementById('btn-upload-photo');
+    const fileInput = document.getElementById('custom-image-input');
+    const cancelBtn = document.getElementById('btn-cancel-upload');
+    const confirmBtn = document.getElementById('btn-confirm-upload');
+    const uploadDialog = document.getElementById('upload-dialog');
+
+    if (!uploadBtn || !fileInput) return;
+
+    uploadBtn.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        _pendingUploadFiles = files;
+
+        // Show upload dialog with preview
+        const previewArea = document.getElementById('upload-preview-area');
+        previewArea.innerHTML = '';
+        Array.from(files).forEach(file => {
+            const thumb = document.createElement('div');
+            thumb.className = 'upload-preview-thumb';
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(file);
+            thumb.appendChild(img);
+            const name = document.createElement('span');
+            name.className = 'upload-preview-name';
+            name.textContent = file.name;
+            thumb.appendChild(name);
+            previewArea.appendChild(thumb);
+        });
+
+        document.getElementById('upload-comment').value = '';
+        uploadDialog.classList.remove('hidden');
+    });
+
+    cancelBtn.addEventListener('click', () => {
+        _pendingUploadFiles = null;
+        fileInput.value = '';
+        uploadDialog.classList.add('hidden');
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+        if (!_pendingUploadFiles || !state.currentModalSku) return;
+
+        const comment = document.getElementById('upload-comment').value.trim();
+        const progressBar = document.getElementById('upload-progress');
+        const progressBarInner = document.getElementById('upload-progress-bar');
+
+        confirmBtn.disabled = true;
+        progressBar.classList.remove('hidden');
+        progressBarInner.style.width = '30%';
+
+        try {
+            const formData = new FormData();
+            Array.from(_pendingUploadFiles).forEach(file => {
+                formData.append('files', file);
+            });
+            if (comment) formData.append('comment', comment);
+
+            progressBarInner.style.width = '60%';
+
+            const res = await fetch(`/api/products/${state.currentModalSku}/images/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+
+            progressBarInner.style.width = '100%';
+
+            if (data.success) {
+                console.log(`[Upload] Uploaded ${data.uploaded.length} image(s)`);
+                if (data.errors && data.errors.length > 0) {
+                    alert('Some files had errors:\n' + data.errors.join('\n'));
+                }
+            } else {
+                alert('Upload failed: ' + (data.error || data.errors?.join('\n') || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Upload error:', err);
+            alert('Upload failed: ' + err.message);
+        } finally {
+            _pendingUploadFiles = null;
+            fileInput.value = '';
+            uploadDialog.classList.add('hidden');
+            confirmBtn.disabled = false;
+            progressBar.classList.add('hidden');
+            progressBarInner.style.width = '0%';
+            // Refresh gallery to show new images
+            refreshGallery();
+        }
+    });
+}
+
+async function deleteCustomImage(filename) {
+    if (!state.currentModalSku) return;
+    if (!confirm(`ลบรูปภาพ "${filename}" ?\nDelete this photo permanently?`)) return;
+
+    try {
+        const res = await fetch(`/api/products/${state.currentModalSku}/images/custom`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            refreshGallery();
+        } else {
+            alert('Error: ' + data.message);
+        }
+    } catch (err) {
+        console.error('Error deleting custom image:', err);
+        alert('Failed to delete image');
+    }
 }
 
 async function loadHiddenImages() {
@@ -3910,6 +4143,7 @@ function _openAdminPanel() {
     _loadAdminUsers();
     _loadBackupList();
     _loadWatcherDebugState();
+    _loadImagePermissions();
     _setupAdminHandlers();
 
     // Close button
@@ -4124,6 +4358,59 @@ async function _loadWatcherDebugState() {
         toggle.checked = !!data.watcher_debug;
     } catch (err) {
         console.error('[Sync] Failed to load watcher debug state', err);
+    }
+}
+
+let _permHandlersBound = false;
+async function _loadImagePermissions() {
+    try {
+        const res = await fetch('/api/permissions');
+        const perms = await res.json();
+
+        const showOff = document.getElementById('perm-show-official');
+        const showWeb = document.getElementById('perm-show-web');
+        const uploadViewer = document.getElementById('perm-upload-viewer');
+        const deleteViewer = document.getElementById('perm-delete-viewer');
+
+        if (showOff) showOff.checked = perms.show_official_images;
+        if (showWeb) showWeb.checked = perms.show_web_images;
+        if (uploadViewer) uploadViewer.checked = perms.custom_image_upload.includes('viewer');
+        if (deleteViewer) deleteViewer.checked = perms.custom_image_delete.includes('viewer');
+
+        if (!_permHandlersBound) {
+            _permHandlersBound = true;
+
+            const savePerms = async () => {
+                const payload = {
+                    show_official_images: showOff?.checked ?? true,
+                    show_web_images: showWeb?.checked ?? true,
+                    custom_image_upload: ['admin'].concat(uploadViewer?.checked ? ['viewer'] : []),
+                    custom_image_delete: ['admin'].concat(deleteViewer?.checked ? ['viewer'] : []),
+                };
+                try {
+                    const r = await fetch('/api/permissions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    const d = await r.json();
+                    const msg = document.getElementById('perm-save-msg');
+                    if (d.success && msg) {
+                        msg.textContent = '✓ Saved';
+                        msg.classList.remove('hidden');
+                        setTimeout(() => msg.classList.add('hidden'), 2000);
+                    }
+                } catch (e) {
+                    console.error('[Perms] save error', e);
+                }
+            };
+
+            [showOff, showWeb, uploadViewer, deleteViewer].forEach(el => {
+                if (el) el.addEventListener('change', savePerms);
+            });
+        }
+    } catch (err) {
+        console.error('[Perms] load error', err);
     }
 }
 
