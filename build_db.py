@@ -58,6 +58,7 @@ SUFFIX_MAP = {
 
 def find_thumbnail(sku):
     """Find a thumbnail image in the SKU's custom image directory.
+    Prefers the _thumb_ version (300px) for faster product list loading.
     Uses the 2nd photo (alphabetically) when multiple photos exist,
     otherwise falls back to the 1st photo.
     Requires an EXACT folder name match (e.g. sku='22673-72031_N' matches only
@@ -77,7 +78,12 @@ def find_thumbnail(sku):
             files.sort()
             # Use 2nd photo as thumbnail if available, else 1st
             thumb_idx = 1 if len(files) > 1 else 0
-            return f'custom/{sku}/{files[thumb_idx]}', len(files)
+            chosen_file = files[thumb_idx]
+            # Prefer the small _thumb_ version if it exists (300px, ~10-20KB)
+            thumb_file = f'_thumb_{chosen_file}'
+            if os.path.isfile(os.path.join(folder_path, thumb_file)):
+                return f'custom/{sku}/{thumb_file}', len(files)
+            return f'custom/{sku}/{chosen_file}', len(files)
 
     return None, 0
 

@@ -1540,14 +1540,19 @@ def serve_logo():
 @app.route('/images/<path:filename>')
 def serve_image(filename):
     """Serve an image file from the custom image directory.
-    Blocks access to files with the _hidden_ prefix."""
+    Blocks access to files with the _hidden_ prefix.
+    Allows _thumb_ files (small thumbnails for fast loading)."""
     basename = os.path.basename(filename)
     if basename.startswith('_hidden_'):
         return 'Not found', 404
     if IMAGE_DIR_CUSTOM:
         full_path = os.path.join(IMAGE_DIR_CUSTOM, filename)
         if os.path.isfile(full_path):
-            return send_from_directory(IMAGE_DIR_CUSTOM, filename)
+            resp = send_from_directory(IMAGE_DIR_CUSTOM, filename)
+            # Images have UUID filenames so they're safe to cache long-term
+            resp.cache_control.max_age = 86400 * 30  # 30 days
+            resp.cache_control.public = True
+            return resp
     return 'Not found', 404
 
 @app.route('/api/stats')
@@ -1933,8 +1938,12 @@ def get_product_images(sku):
             files.sort()
             for f in files:
                 meta = metadata.get(f, {})
+                # Check if a _thumb_ version exists for faster modal thumbnail strip
+                thumb_file = f'_thumb_{f}'
+                has_thumb = os.path.isfile(os.path.join(custom_dir, thumb_file))
                 all_images.append({
                     'url': f'/images/custom/{sku_folder}/{f}',
+                    'thumb_url': f'/images/custom/{sku_folder}/{thumb_file}' if has_thumb else f'/images/custom/{sku_folder}/{f}',
                     'source': 'custom',
                     'filename': f,
                     'comment': meta.get('comment', ''),
@@ -1958,13 +1967,42 @@ def serve_custom_image(filename):
         return 'Not found', 404
     full_path = os.path.join(IMAGE_DIR_CUSTOM, filename)
     if os.path.isfile(full_path):
-        return send_from_directory(IMAGE_DIR_CUSTOM, filename)
+        resp = send_from_directory(IMAGE_DIR_CUSTOM, filename)
+        # Images have UUID filenames so they're safe to cache long-term
+        resp.cache_control.max_age = 86400 * 30  # 30 days
+        resp.cache_control.public = True
+        return resp
     return 'Not found', 404
 
 
 ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_IMAGE_DIMENSION = 1200  # px
+THUMB_MAX_DIMENSION = 300   # px - small thumbnail for product list & modal strip
+
+
+def _generate_thumbnail(image_path, thumb_path):
+    """Generate a small thumbnail (300px max) from a full-size image.
+    Stored as _thumb_<original_filename>.jpg alongside the original.
+    Returns True if successful, False otherwise."""
+    try:
+        from PIL import Image
+        img = Image.open(image_path)
+        if img.mode in ('RGBA', 'P', 'LA'):
+            img = img.convert('RGB')
+        w, h = img.size
+        if max(w, h) > THUMB_MAX_DIMENSION:
+            ratio = THUMB_MAX_DIMENSION / max(w, h)
+            new_size = (int(w * ratio), int(h * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        img.save(thumb_path, 'JPEG', quality=75, optimize=True)
+        return True
+    except ImportError:
+        print("[Thumbnail] Pillow not installed — skipping thumbnail generation")
+        return False
+    except Exception as e:
+        print(f"[Thumbnail] Error generating thumbnail: {e}")
+        return False
 
 
 @app.route('/api/products/<sku>/images/upload', methods=['POST'])
@@ -2042,6 +2080,10 @@ def upload_product_image(sku):
                     img = img.resize(new_size, Image.LANCZOS)
 
                 img.save(save_path, 'JPEG', quality=85, optimize=True)
+
+                # Generate small thumbnail for product list & modal strip
+                thumb_path = os.path.join(custom_dir, f'_thumb_{save_filename}')
+                _generate_thumbnail(save_path, thumb_path)
                 print(f"[CustomImage] Saved (Pillow resized): {save_path}")
 
             except ImportError:
@@ -2049,6 +2091,7 @@ def upload_product_image(sku):
                 with open(save_path, 'wb') as f:
                     f.write(file_data)
                 print(f"[CustomImage] Saved (raw, no Pillow): {save_path}")
+                # No Pillow available — can't generate thumbnail
 
             # Update metadata
             metadata[save_filename] = {
@@ -2101,6 +2144,11 @@ def delete_custom_image(sku):
 
     try:
         os.remove(filepath)
+        # Also remove the _thumb_ version if it exists
+        thumb_path = os.path.join(custom_dir, f'_thumb_{filename}')
+        if os.path.isfile(thumb_path):
+            os.remove(thumb_path)
+            print(f"[CustomImage] Deleted thumbnail: {thumb_path}")
         # Remove from metadata
         metadata = _load_custom_metadata(custom_dir)
         metadata.pop(filename, None)
@@ -3213,6 +3261,29 @@ if __name__ == '__main__':
     start_file_watcher()
     # Start auto-backup scheduler
     _start_auto_backup_scheduler()
+    # Auto-generate missing thumbnails in background (so mini PC doesn't need manual step)
+    def _auto_backfill_thumbnails():
+        """Check for images without _thumb_ versions and generate them."""
+        if not IMAGE_DIR_CUSTOM or not os.path.isdir(IMAGE_DIR_CUSTOM):
+            return
+        generated = 0
+        for sku_folder in os.listdir(IMAGE_DIR_CUSTOM):
+            folder_path = os.path.join(IMAGE_DIR_CUSTOM, sku_folder)
+            if not os.path.isdir(folder_path):
+                continue
+            files = [f for f in os.listdir(folder_path)
+                     if os.path.isfile(os.path.join(folder_path, f))
+                     and not f.startswith('_')
+                     and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+            for f in files:
+                thumb_path = os.path.join(folder_path, f'_thumb_{f}')
+                if not os.path.isfile(thumb_path):
+                    if _generate_thumbnail(os.path.join(folder_path, f), thumb_path):
+                        generated += 1
+        if generated > 0:
+            print(f"[Thumbnail] Auto-backfill: generated {generated} missing thumbnail(s)")
+
+    threading.Thread(target=_auto_backfill_thumbnails, daemon=True).start()
     print(f"Available at: http://localhost:{args.port}")
     print("[Sync] Background file watcher active — monitoring Z:\\ for changes every", FILE_CHECK_INTERVAL, "seconds")
 

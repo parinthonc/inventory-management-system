@@ -1687,13 +1687,18 @@ function insertThumbnail(imgData, isActive) {
     // Handle both old format (string path) and new format (object with url/source/etc.)
     const isObj = typeof imgData === 'object' && imgData !== null;
     const imgPath = isObj ? imgData.url : imgData;
+    // Use thumb_url for the gallery strip (small 300px version, loads fast)
+    const thumbPath = isObj ? (imgData.thumb_url || imgData.url) : imgData;
     const source = isObj ? (imgData.source || '') : '';
     const filename = isObj ? (imgData.filename || imgPath.split('/').pop()) : imgPath.split('/').pop();
     const comment = isObj ? (imgData.comment || '') : '';
     const uploadedBy = isObj ? (imgData.uploaded_by || '') : '';
     const uploadedAt = isObj ? (imgData.uploaded_at || '') : '';
 
-    const src = imgPath.startsWith('/') ? imgPath : `/images/${imgPath}`;
+    // Full-size URL for main image display
+    const fullSrc = imgPath.startsWith('/') ? imgPath : `/images/${imgPath}`;
+    // Small thumbnail URL for the strip
+    const thumbSrc = thumbPath.startsWith('/') ? thumbPath : `/images/${thumbPath}`;
 
     // Wrapper for positioning badge/delete button
     const wrapper = document.createElement('div');
@@ -1701,13 +1706,13 @@ function insertThumbnail(imgData, isActive) {
     if (source === 'custom') wrapper.classList.add('custom-thumb');
 
     const img = document.createElement('img');
-    img.src = src;
+    img.src = thumbSrc;  // Use small thumbnail for the strip
     img.className = `gallery-thumb ${isActive ? 'active' : ''}`;
     if (comment) img.title = comment;
 
     img.onclick = () => {
-        // Update main image
-        els.modalMainImg.src = src;
+        // Update main image with FULL-SIZE version
+        els.modalMainImg.src = fullSrc;
         els.modalMainImg.dataset.filename = filename;
         els.modalMainImg.dataset.source = source;
 
