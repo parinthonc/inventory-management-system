@@ -158,11 +158,10 @@ def _try_parse_record(data, pos, categories, sku_types):
     }
 
 
-def parse_cvindtr1(filepath):
+def parse_cvindtr1(data):
     """Parse CVINDTR1 B-tree — page-structured, 512-byte pages.
-    Each page: 7-byte header (byte 0 = record count) + up to 12 x 39-byte records."""
-    data = _read_file_with_retry(filepath)
-
+    Each page: 7-byte header (byte 0 = record count) + up to 12 x 39-byte records.
+    Accepts raw bytes (pre-read) to avoid duplicate network reads."""
     fsize = len(data)
     records = []
     PAGE_SIZE = 0x200
@@ -196,10 +195,9 @@ def parse_cvindtr1(filepath):
     return records
 
 
-def parse_cvindtr1_detail(filepath):
-    """Parse 0x8A-delimited detail section using fast find()."""
-    data = _read_file_with_retry(filepath)
-
+def parse_cvindtr1_detail(data):
+    """Parse 0x8A-delimited detail section using fast find().
+    Accepts raw bytes (pre-read) to avoid duplicate network reads."""
     fsize = len(data)
     detail_lookup = {}
     record_count = 0
@@ -451,12 +449,18 @@ if __name__ == '__main__':
     cvindtrn_path = os.path.join(BASE_CTOTAL, "CVINDTRN")
     cvindmas_path = os.path.join(BASE_CTOTAL, "CVINDMAS")
 
-    print("\n[PARALLEL] Parsing all data sources with 4 threads...")
+    # Read CVINDTR1 once — it contains both the B-tree index and detail records.
+    # Previously this file was read twice (once per parser), doubling network I/O.
+    print("\n[1/2] Reading CVINDTR1 from network...")
+    cvindtr1_data = _read_file_with_retry(cvindtr1_path)
+    print(f"  CVINDTR1: {len(cvindtr1_data):,} bytes read")
+
+    print("[2/2] Parsing all data sources with 4 threads...")
     results = {}
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = {
-            executor.submit(parse_cvindtr1, cvindtr1_path): 'btree',
-            executor.submit(parse_cvindtr1_detail, cvindtr1_path): 'detail',
+            executor.submit(parse_cvindtr1, cvindtr1_data): 'btree',
+            executor.submit(parse_cvindtr1_detail, cvindtr1_data): 'detail',
             executor.submit(parse_cvindtrn, cvindtrn_path): 'headers',
             executor.submit(parse_cvindmas, cvindmas_path): 'master',
         }
