@@ -397,7 +397,7 @@
                         <div class="filter-group">
                             <label for="sort-filter">เรียงตาม</label>
                             <select id="sort-filter" class="select-css">
-                                <option value="part_code">Part Code</option>
+                                <option value="part_code" selected>Part Code</option>
                                 <option value="suffix">Type</option>
                                 <option value="brand">Brand</option>
                                 <option value="name_eng">Description</option>
@@ -405,7 +405,7 @@
                                 <option value="locations">คลัง</option>
                                 <option value="qty">Qty</option>
                                 <option value="sale_price">ราคาต่อหน่วย</option>
-                                <option value="last_sold_date" selected>วันที่ขายล่าสุด</option>
+                                <option value="last_sold_date">วันที่ขายล่าสุด</option>
                                 <option value="amount_sold">Amount Sold</option>
                                 <option value="relevance">Relevance</option>
                             </select>
@@ -433,12 +433,12 @@
                         <div class="filter-group hide-label">
                             <button id="sort-dir-btn" class="btn btn-icon" title="Toggle Sort Direction">
                                 <svg id="sort-icon-asc" viewBox="0 0 24 24" width="20" height="20" stroke="currentColor"
-                                    stroke-width="2" fill="none" class="hidden">
+                                    stroke-width="2" fill="none">
                                     <line x1="12" y1="19" x2="12" y2="5"></line>
                                     <polyline points="5 12 12 5 19 12"></polyline>
                                 </svg>
                                 <svg id="sort-icon-desc" viewBox="0 0 24 24" width="20" height="20"
-                                    stroke="currentColor" stroke-width="2" fill="none">
+                                    stroke="currentColor" stroke-width="2" fill="none" class="hidden">
                                     <line x1="12" y1="5" x2="12" y2="19"></line>
                                     <polyline points="19 12 12 19 5 12"></polyline>
                                 </svg>

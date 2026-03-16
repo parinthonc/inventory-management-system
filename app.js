@@ -78,8 +78,8 @@ let state = {
     brand: '',
     suffix: '',
     activeDays: '', // new filter
-    sort: 'last_sold_date',
-    sortDir: 'desc',
+    sort: 'part_code',
+    sortDir: 'asc',
     brands: [],
     suffixes: [],
 
@@ -448,7 +448,7 @@ async function init() {
     await fetchProducts();
 
     // Set up sortable headers for all tables (reusable for any future table)
-    setupSortableHeaders('#view-products .data-table', 'sort', 'sortDir', fetchProducts, 'last_sold_date', 'desc');
+    setupSortableHeaders('#view-products .data-table', 'sort', 'sortDir', fetchProducts, 'part_code', 'asc');
     setupSortableHeaders('#view-moves .data-table', 'movesSort', 'movesSortDir', fetchMoves, '', '');
     setupSortableHeaders('#view-flags .data-table', 'flagsSort', 'flagsSortDir', fetchFlags, '', '');
     setupSortableHeaders('#invoice-table', 'invoicesSort', 'invoicesSortDir', fetchInvoices, 'invoice_date', 'desc');
