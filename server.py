@@ -402,7 +402,7 @@ _BACKUP_CHECK_INTERVAL = 3600  # Check every hour
 
 
 def _create_backup(prefix='inventory'):
-    """Create a timestamped backup of the database. Returns the backup filename."""
+    """Create a timestamped backup of the database and config files. Returns the backup filename."""
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     backup_filename = f'{prefix}_{timestamp}.db'
     backup_path = os.path.join(BACKUP_DIR, backup_filename)
@@ -419,6 +419,19 @@ def _create_backup(prefix='inventory'):
         shutil.copy2(DB_FILE, backup_path)
 
     print(f'[Backup] Created: {backup_filename} ({os.path.getsize(backup_path) / 1024 / 1024:.1f} MB)')
+
+    # Also back up small config files alongside the DB
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+    _config_files = ['config.ini', 'auth_secret.key', 'sync_config.json']
+    for cfg_name in _config_files:
+        src = os.path.join(_base_dir, cfg_name)
+        if os.path.isfile(src):
+            dst = os.path.join(BACKUP_DIR, f'{prefix}_{timestamp}_{cfg_name}')
+            try:
+                shutil.copy2(src, dst)
+            except Exception as e:
+                print(f'[Backup] Warning: could not copy {cfg_name}: {e}')
+    print(f'[Backup] Config files backed up alongside DB')
 
     # Enforce retention limit
     _enforce_retention()

@@ -3701,33 +3701,76 @@ function showDisappearedWarning(count, transactions) {
 let _currentUser = null;
 
 /**
- * Entry point: check if user is authenticated, show login or load app.
+ * Entry point: check if user is authenticated.
+ * If already logged in, show app directly.
+ * If not, auto-login as guest so the app loads without a login wall.
+ * Users can still manually log in via the header button to get admin access.
  */
 async function authCheckAndInit() {
     const overlay = document.getElementById('login-overlay');
     const appEl = document.getElementById('app');
+    overlay.classList.add('hidden');
+    appEl.style.display = '';
+
     try {
         const res = await fetch('/api/auth/me');
         if (res.ok) {
             _currentUser = await res.json();
-            // Authenticated — hide login, show app
-            overlay.classList.add('hidden');
-            appEl.style.display = '';
             _showUserUI();
             init();
         } else {
-            // Not authenticated — show login overlay, hide app
-            overlay.classList.remove('hidden');
-            appEl.style.display = 'none';
-            _setupLoginHandlers();
+            // Not authenticated — auto-login as guest silently
+            await _autoGuestLogin();
         }
     } catch (err) {
-        // Network error — show login overlay
         console.error('[Auth] Error checking session:', err);
-        overlay.classList.remove('hidden');
-        appEl.style.display = 'none';
-        _setupLoginHandlers();
+        // Network error — still try guest login
+        await _autoGuestLogin();
     }
+}
+
+/**
+ * Silently log in as guest so the app works without a login wall.
+ */
+async function _autoGuestLogin() {
+    const appEl = document.getElementById('app');
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'guest', password: 'guest' })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            _currentUser = data.user;
+            _showUserUI();
+            init();
+        } else {
+            // Guest login failed — still show app (some features may not work)
+            console.warn('[Auth] Auto guest login failed:', data.error);
+            _currentUser = { username: 'guest', role: 'viewer' };
+            _showUserUI();
+            init();
+        }
+    } catch (err) {
+        console.error('[Auth] Auto guest login error:', err);
+        // Still show app even if auth fails entirely
+        _currentUser = { username: 'guest', role: 'viewer' };
+        _showUserUI();
+        init();
+    }
+}
+
+/**
+ * Show the login overlay manually (triggered from header "Login" button).
+ */
+function _showLoginOverlay() {
+    const overlay = document.getElementById('login-overlay');
+    overlay.classList.remove('hidden');
+    _setupLoginHandlers();
+    // Focus the username field
+    const usernameInput = document.getElementById('login-username');
+    if (usernameInput) usernameInput.focus();
 }
 
 /** Flag to prevent double-binding login listeners. */
@@ -3758,11 +3801,8 @@ function _setupLoginHandlers() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-                _currentUser = data.user;
-                document.getElementById('login-overlay').classList.add('hidden');
-                document.getElementById('app').style.display = '';
-                _showUserUI();
-                init();
+                // Reload the page to fully reset UI with new user permissions
+                location.reload();
             } else {
                 errorDiv.textContent = data.error || 'Login failed';
                 errorDiv.classList.remove('hidden');
@@ -3791,11 +3831,8 @@ function _setupLoginHandlers() {
             });
             const data = await res.json();
             if (res.ok && data.success) {
-                _currentUser = data.user;
-                document.getElementById('login-overlay').classList.add('hidden');
-                document.getElementById('app').style.display = '';
-                _showUserUI();
-                init();
+                // Reload the page to fully reset UI with new user permissions
+                location.reload();
             } else {
                 errorDiv.textContent = data.error || 'Guest login failed';
                 errorDiv.classList.remove('hidden');
@@ -3820,6 +3857,7 @@ function _showUserUI() {
     if (!_currentUser) return;
 
     const badge = document.getElementById('user-badge');
+    const loginHeaderBtn = document.getElementById('login-header-btn');
     const adminBtn = document.getElementById('admin-panel-btn');
     const logoutBtn = document.getElementById('logout-btn');
 
@@ -3827,15 +3865,32 @@ function _showUserUI() {
     badge.textContent = _currentUser.username;
     badge.classList.remove('hidden');
 
+    // For guest users, show the "Login" button so they can authenticate
+    // For authenticated (non-guest) users, hide it
+    if (_currentUser.username === 'guest') {
+        loginHeaderBtn.classList.remove('hidden');
+    } else {
+        loginHeaderBtn.classList.add('hidden');
+    }
+
     // Show admin panel button only for admin users
     if (_currentUser.role === 'admin' && !_userUIBound) {
         adminBtn.classList.remove('hidden');
         adminBtn.addEventListener('click', _openAdminPanel);
     }
 
-    // Logout button
-    if (!_userUIBound) {
+    // Logout button (shown for non-guest authenticated users)
+    if (_currentUser.username !== 'guest') {
         logoutBtn.classList.remove('hidden');
+    } else {
+        logoutBtn.classList.add('hidden');
+    }
+
+    if (!_userUIBound) {
+        // Login header button opens the login overlay
+        loginHeaderBtn.addEventListener('click', _showLoginOverlay);
+
+        // Logout button
         logoutBtn.addEventListener('click', async () => {
             try {
                 await fetch('/api/auth/logout', { method: 'POST' });
