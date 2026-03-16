@@ -4397,7 +4397,7 @@ async function _loadImagePermissions() {
                 }
             };
 
-            [showOff, showWeb, uploadViewer, deleteViewer].forEach(el => {
+            [uploadViewer, deleteViewer].forEach(el => {
                 if (el) el.addEventListener('change', savePerms);
             });
         }

@@ -81,14 +81,27 @@ def extract_date_from_filename(filename):
 
 def find_thumbnail(base_part_number):
     """Find the first alphabetical image file in the part's custom image directory.
+    Scans IMAGE_DIR_CUSTOM for any folder starting with the base part number
+    (e.g. base_part_number='04111-20220-71' matches folder '04111-20220-71_G').
     Returns (relative_path, file_count) or (None, 0)."""
-    if not IMAGE_DIR_CUSTOM:
+    if not IMAGE_DIR_CUSTOM or not os.path.isdir(IMAGE_DIR_CUSTOM):
         return None, 0
 
-    # Custom images are stored under SKU folders (e.g. "PART_G/")
-    # but at DB build time we only have the base part number, so we
-    # can't reliably match to a specific SKU folder. Return (None, 0)
-    # and let the server handle image discovery at runtime.
+    # Look for any SKU folder that starts with this part number
+    prefix = base_part_number + '_'
+    for folder_name in sorted(os.listdir(IMAGE_DIR_CUSTOM)):
+        if folder_name.startswith(prefix) or folder_name == base_part_number:
+            folder_path = os.path.join(IMAGE_DIR_CUSTOM, folder_name)
+            if os.path.isdir(folder_path):
+                files = [f for f in os.listdir(folder_path)
+                         if os.path.isfile(os.path.join(folder_path, f))
+                         and not f.startswith('_')
+                         and f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp'))]
+                if files:
+                    files.sort()
+                    # Return path relative to custom dir, prefixed with custom/
+                    return f'custom/{folder_name}/{files[0]}', len(files)
+
     return None, 0
 
 def parse_zind_file(filepath):
@@ -146,12 +159,13 @@ def parse_zind_file(filepath):
     return items
 
 def init_db():
-    """Initialize the SQLite database schema."""
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
-
+    """Initialize the products table in the SQLite database.
+    Preserves other tables (stock_flags, users, audit_log) across rebuilds."""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
+
+    # Drop only the products table (preserve flags, users, audit_log)
+    cursor.execute('DROP TABLE IF EXISTS products')
 
     cursor.execute('''
     CREATE TABLE products (
