@@ -881,9 +881,24 @@ def _get_file_sizes(source_key):
     frequently 'touches' files (updating mtime) without changing content,
     causing phantom sync triggers.  File size only changes when actual
     records are added or removed — which is what we care about.
-    Same os.stat() call, just reading st_size instead of st_mtime.
+
+    On Windows, SMB/network drives cache directory metadata aggressively.
+    os.stat() can return stale values for minutes on Z:\\ shares.
+    To bust the cache, we list the parent directory first (os.listdir),
+    which forces Windows to refresh file attributes from the server.
     """
     sizes = {}
+    # Bust the Windows SMB metadata cache by listing parent directories first
+    busted_dirs = set()
+    for fpath in SERVER_SOURCE_FILES.get(source_key, []):
+        parent = os.path.dirname(fpath)
+        if parent not in busted_dirs:
+            try:
+                os.listdir(parent)  # Forces Windows to refresh cached attrs
+            except OSError:
+                pass
+            busted_dirs.add(parent)
+    # Now read the actual file sizes (freshly fetched)
     for fpath in SERVER_SOURCE_FILES.get(source_key, []):
         try:
             st = os.stat(fpath)
