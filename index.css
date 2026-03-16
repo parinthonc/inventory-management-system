@@ -2379,16 +2379,18 @@ h4 {
     .modal-gallery {
         flex: 0 0 auto;
         max-width: 100%;
-        max-height: 35vh;
+        max-height: none;
         border-right: none;
         border-bottom: 1px solid var(--border-color);
         flex-direction: row;
         align-items: stretch;
+        flex-wrap: wrap;
     }
 
     .main-image-container {
         flex: 1;
         max-height: 30vh;
+        min-width: 0;
     }
 
     .thumbnail-strip {
@@ -2397,6 +2399,25 @@ h4 {
         max-width: 60px;
         overflow-x: hidden;
         overflow-y: auto;
+    }
+
+    /* Image caption bar: full row below image+thumbs */
+    .image-caption-bar {
+        flex-basis: 100%;
+        order: 3;
+    }
+
+    /* Upload controls: full row below image+thumbs */
+    .custom-image-controls {
+        flex-basis: 100%;
+        order: 4;
+        margin-top: 0.25rem;
+    }
+
+    /* Upload dialog: full row */
+    .upload-dialog {
+        flex-basis: 100%;
+        order: 5;
     }
 
     .modal-details {
