@@ -733,10 +733,10 @@ SERVER_SOURCE_FILES = {
 _sync_lock = threading.Lock()
 _cache_lock = threading.RLock()  # Protects global cache reads/writes during background sync
 _sync_state = {
-    'master':   {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_size': {}},
-    'ledger':   {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_size': {}},
-    'customer': {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_size': {}},
-    'invoice':  {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_size': {}},
+    'master':   {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_mtime': {}},
+    'ledger':   {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_mtime': {}},
+    'customer': {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_mtime': {}},
+    'invoice':  {'status': 'idle', 'progress': '', 'last_check': None, 'last_sync': None, 'last_mtime': {}},
 }
 _sync_events = []  # list of queue.Queue for SSE subscribers
 _file_watcher_thread = None
@@ -1120,7 +1120,7 @@ def _run_sync_task(source_key, trigger='auto'):
         _sync_state[source_key]['status'] = 'done'
         _sync_state[source_key]['progress'] = 'Sync complete'
         _sync_state[source_key]['last_sync'] = datetime.datetime.now().isoformat()
-        _sync_state[source_key]['last_size'] = _get_file_sizes(source_key)
+        _sync_state[source_key]['last_mtime'] = _get_file_mtimes(source_key)
 
         _broadcast_sync_event('sync_done', {'source': source_key, 'changes': changes})
         elapsed = time.time() - sync_start_time
@@ -1352,7 +1352,7 @@ def _file_watcher_loop():
 
     # Initialize mtimes on first run
     for key in SERVER_SOURCE_FILES:
-        _sync_state[key]['last_size'] = _get_file_sizes(key)
+        _sync_state[key]['last_mtime'] = _get_file_mtimes(key)
         _sync_state[key]['last_check'] = datetime.datetime.now().isoformat()
 
     # Check if local output CSVs are stale compared to Z: source files
@@ -1365,21 +1365,21 @@ def _file_watcher_loop():
 
         for source_key in SERVER_SOURCE_FILES:
             try:
-                current_sizes = _get_file_sizes(source_key)
-                old_sizes = _sync_state[source_key].get('last_size', {})
+                current_mtimes = _get_file_mtimes(source_key)
+                old_mtimes = _sync_state[source_key].get('last_mtime', {})
                 _sync_state[source_key]['last_check'] = datetime.datetime.now().isoformat()
 
-                # Check if any file's size has changed (ignores mtime-only touches)
+                # Check if any file's modification time has changed
                 changed = False
-                if not old_sizes and current_sizes:
+                if not old_mtimes and current_mtimes:
                     changed = True  # First time seeing files
                 else:
-                    for fpath, size in current_sizes.items():
-                        if fpath not in old_sizes or old_sizes[fpath] != size:
+                    for fpath, mtime in current_mtimes.items():
+                        if fpath not in old_mtimes or old_mtimes[fpath] != mtime:
                             changed = True
-                            old_sz = old_sizes.get(fpath, '?')
+                            old_mt = old_mtimes.get(fpath, '?')
                             if _watcher_debug:
-                                print(f"[AutoSync] Size changed in {os.path.basename(fpath)} for {source_key}: {old_sz} -> {size}")
+                                print(f"[AutoSync] Mtime changed in {os.path.basename(fpath)} for {source_key}: {old_mt} -> {mtime}")
                             break
 
                 if _watcher_debug and not changed:
@@ -1387,8 +1387,8 @@ def _file_watcher_loop():
 
                 if changed and _sync_state[source_key]['status'] == 'idle':
                     if not _sync_enabled.get(source_key, False):
-                        # Auto-sync disabled for this source — update sizes silently
-                        _sync_state[source_key]['last_size'] = current_sizes
+                        # Auto-sync disabled for this source — update mtimes silently
+                        _sync_state[source_key]['last_mtime'] = current_mtimes
                         if _watcher_debug:
                             print(f"[AutoSync] Change detected in {source_key} but auto-sync is OFF — skipped")
                         continue
