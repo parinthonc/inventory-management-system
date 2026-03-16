@@ -1852,12 +1852,12 @@ def _save_permissions(perms):
 
 def _check_permission(action):
     """Check if the current session user has permission for the given action.
-    Returns (allowed: bool, error_response_or_None)."""
+    Returns (allowed: bool, response_or_None, status_code)."""
     perms = _load_permissions()
     allowed_roles = perms.get(action, [])
     user_role = session.get('role', 'viewer')  # default to viewer (guest sessions)
     if user_role in allowed_roles:
-        return True, None
+        return True, None, 200
     return False, jsonify({'error': f'Permission denied: {action}'}), 403
 
 
@@ -1974,7 +1974,7 @@ def upload_product_image(sku):
     # Permission check
     perm_result = _check_permission('custom_image_upload')
     if perm_result[0] is False:
-        return perm_result[1], perm_result[2] if len(perm_result) > 2 else 403
+        return perm_result[1], perm_result[2]
 
     custom_dir, sku_folder = _get_custom_image_dir_for_sku(sku)
     if not custom_dir:
@@ -2010,38 +2010,25 @@ def upload_product_image(sku):
             errors.append(f'{file.filename}: too large (max {MAX_IMAGE_SIZE // 1024 // 1024}MB)')
             continue
 
-        # Generate timestamped filename
+        # Generate timestamped filename with UUID to prevent race conditions
+        import uuid
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        # Count existing files with same timestamp prefix to avoid collisions
-        existing = [f for f in os.listdir(custom_dir) if f.startswith(timestamp)]
-        seq = len(existing) + 1
-        save_filename = f'{timestamp}_{seq}.jpg'
+        unique_id = uuid.uuid4().hex[:8]
+        save_filename = f'{timestamp}_{unique_id}.jpg'
         save_path = os.path.join(custom_dir, save_filename)
 
         try:
             # Try to resize with Pillow if available
             try:
-                from PIL import Image
+                from PIL import Image, ImageOps
                 import io
                 img = Image.open(io.BytesIO(file_data))
 
-                # Auto-rotate based on EXIF orientation
+                # Auto-rotate based on EXIF orientation (using Pillow's built-in)
                 try:
-                    from PIL import ExifTags
-                    for orientation_key in ExifTags.TAGS.keys():
-                        if ExifTags.TAGS[orientation_key] == 'Orientation':
-                            break
-                    exif = img._getexif()
-                    if exif:
-                        orientation = exif.get(orientation_key)
-                        if orientation == 3:
-                            img = img.rotate(180, expand=True)
-                        elif orientation == 6:
-                            img = img.rotate(270, expand=True)
-                        elif orientation == 8:
-                            img = img.rotate(90, expand=True)
+                    img = ImageOps.exif_transpose(img)
                 except Exception:
-                    pass  # No EXIF data, skip rotation
+                    pass  # No EXIF data or unsupported format, skip rotation
 
                 # Convert to RGB if necessary (e.g., RGBA PNGs)
                 if img.mode in ('RGBA', 'P', 'LA'):
@@ -2097,7 +2084,7 @@ def delete_custom_image(sku):
     """Delete a custom-uploaded image file."""
     perm_result = _check_permission('custom_image_delete')
     if perm_result[0] is False:
-        return perm_result[1], perm_result[2] if len(perm_result) > 2 else 403
+        return perm_result[1], perm_result[2]
 
     data = request.get_json(force=True)
     filename = data.get('filename', '').strip()

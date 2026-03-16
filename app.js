@@ -1847,60 +1847,101 @@ async function refreshGallery() {
 
 // ─── Custom Image Upload ────────────────────────────────────────────────────
 
-let _pendingUploadFiles = null;
+let _pendingUploadFiles = [];  // Array of File objects (accumulates across multiple picks)
 
 function _setupUploadHandlers() {
     const uploadBtn = document.getElementById('btn-upload-photo');
     const fileInput = document.getElementById('custom-image-input');
     const cancelBtn = document.getElementById('btn-cancel-upload');
     const confirmBtn = document.getElementById('btn-confirm-upload');
+    const addMoreBtn = document.getElementById('btn-add-more-photos');
     const uploadDialog = document.getElementById('upload-dialog');
 
     if (!uploadBtn || !fileInput) return;
 
+    let _isAddingMore = false;  // true when user taps "เพิ่มรูป"
+
+    // Helper: add a single file's preview thumbnail to the preview area
+    function _addPreviewThumb(file) {
+        const previewArea = document.getElementById('upload-preview-area');
+        const thumb = document.createElement('div');
+        thumb.className = 'upload-preview-thumb';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        thumb.appendChild(img);
+        const name = document.createElement('span');
+        name.className = 'upload-preview-name';
+        name.textContent = file.name;
+        thumb.appendChild(name);
+        previewArea.appendChild(thumb);
+    }
+
+    // Helper: update the upload button count label
+    function _updateUploadLabel() {
+        const count = _pendingUploadFiles.length;
+        confirmBtn.querySelector('.upload-count')?.remove();
+        if (count > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'upload-count';
+            badge.textContent = ` (${count} รูป)`;
+            confirmBtn.appendChild(badge);
+        }
+    }
+
+    // Upload button → trigger file input (fresh upload)
     uploadBtn.addEventListener('click', () => {
+        _isAddingMore = false;
         fileInput.click();
     });
 
+    // File input change → show preview or append
     fileInput.addEventListener('change', (e) => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
-        _pendingUploadFiles = files;
 
-        // Show upload dialog with preview
-        const previewArea = document.getElementById('upload-preview-area');
-        previewArea.innerHTML = '';
+        if (!_isAddingMore) {
+            // Fresh upload: reset everything
+            _pendingUploadFiles = [];
+            document.getElementById('upload-preview-area').innerHTML = '';
+            document.getElementById('upload-comment').value = '';
+        }
+
+        // Append new files
         Array.from(files).forEach(file => {
-            const thumb = document.createElement('div');
-            thumb.className = 'upload-preview-thumb';
-            const img = document.createElement('img');
-            img.src = URL.createObjectURL(file);
-            thumb.appendChild(img);
-            const name = document.createElement('span');
-            name.className = 'upload-preview-name';
-            name.textContent = file.name;
-            thumb.appendChild(name);
-            previewArea.appendChild(thumb);
+            _pendingUploadFiles.push(file);
+            _addPreviewThumb(file);
         });
 
-        document.getElementById('upload-comment').value = '';
+        _updateUploadLabel();
         uploadDialog.classList.remove('hidden');
+        _isAddingMore = false;
+        fileInput.value = '';  // Reset so same file can be selected again
     });
 
+    // "เพิ่มรูป / Add More" button → re-open file input to add more photos
+    if (addMoreBtn) {
+        addMoreBtn.addEventListener('click', () => {
+            _isAddingMore = true;
+            fileInput.click();
+        });
+    }
+
     cancelBtn.addEventListener('click', () => {
-        _pendingUploadFiles = null;
+        _pendingUploadFiles = [];
         fileInput.value = '';
         uploadDialog.classList.add('hidden');
+        _updateUploadLabel();
     });
 
     confirmBtn.addEventListener('click', async () => {
-        if (!_pendingUploadFiles || !state.currentModalSku) return;
+        if (_pendingUploadFiles.length === 0 || !state.currentModalSku) return;
 
         const comment = document.getElementById('upload-comment').value.trim();
         const progressBar = document.getElementById('upload-progress');
         const progressBarInner = document.getElementById('upload-progress-bar');
 
         confirmBtn.disabled = true;
+        if (addMoreBtn) addMoreBtn.disabled = true;
         progressBar.classList.remove('hidden');
         progressBarInner.style.width = '30%';
 
@@ -3732,9 +3773,19 @@ async function openInvoiceDetail(invoiceNumber) {
     const previewImg = preview.querySelector('img');
 
     let isVisible = false;
+    let currentSizeClass = '';
 
-    // Position the preview near the cursor, keeping it within viewport
+    // Position the preview near the cursor (for small previews) or centered (for large)
     function positionPreview(e) {
+        if (currentSizeClass === 'preview-lg') {
+            // Full-size: center in viewport
+            preview.style.left = '50%';
+            preview.style.top = '50%';
+            preview.style.transform = 'translate(-50%, -50%) scale(1)';
+            return;
+        }
+
+        // Small preview: follow cursor
         const gap = 16;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
@@ -3754,10 +3805,12 @@ async function openInvoiceDetail(invoiceNumber) {
 
         preview.style.left = x + 'px';
         preview.style.top = y + 'px';
+        preview.style.transform = 'scale(1)';
     }
 
     function showPreview(imgSrc, e, sizeClass) {
         previewImg.src = imgSrc;
+        currentSizeClass = sizeClass;
         preview.className = `image-hover-preview ${sizeClass}`;
         isVisible = true;
         positionPreview(e);
@@ -3766,7 +3819,9 @@ async function openInvoiceDetail(invoiceNumber) {
 
     function hidePreview() {
         isVisible = false;
+        currentSizeClass = '';
         preview.classList.remove('visible');
+        preview.style.transform = '';
     }
 
     // ── Product list table thumbnails ──────────────────────────────────
@@ -3804,10 +3859,7 @@ async function openInvoiceDetail(invoiceNumber) {
             hidePreview();
         });
 
-        modalMainImg.addEventListener('mousemove', (e) => {
-            if (!isVisible) return;
-            positionPreview(e);
-        });
+        // No mousemove needed for preview-lg since it's centered
     }
 
     // ── Hide preview when modal closes ────────────────────────────────

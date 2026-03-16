@@ -28,6 +28,7 @@ forklift brand/
 invoice/
 logo/
 backups/
+product_images/
 
 # --- Cache & runtime files ---
 __pycache__/

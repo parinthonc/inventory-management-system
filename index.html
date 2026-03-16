@@ -969,26 +969,33 @@
                                     <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"></path>
                                     <circle cx="12" cy="13" r="4"></circle>
                                 </svg>
-                                <span>Upload Photo</span>
+                                <span>ถ่ายรูป / เลือกรูป</span>
                             </button>
                             <input type="file" id="custom-image-input" accept="image/jpeg,image/png,image/webp" capture="environment" multiple style="display:none">
                         </div>
                         <!-- Upload dialog (hidden, shown during upload) -->
                         <div id="upload-dialog" class="upload-dialog hidden">
                             <div class="upload-dialog-preview" id="upload-preview-area"></div>
+                            <button id="btn-add-more-photos" class="btn btn-outline btn-compact btn-add-more" type="button">
+                                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:0.3rem">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                เพิ่มรูป / Add More Photos
+                            </button>
                             <div class="upload-dialog-fields">
-                                <label for="upload-comment" class="upload-label">Comment (optional)</label>
+                                <label for="upload-comment" class="upload-label">คำอธิบาย (ไม่บังคับ)</label>
                                 <input type="text" id="upload-comment" class="upload-comment-input" placeholder="เพิ่มคำอธิบาย / Add a description...">
                             </div>
                             <div class="upload-dialog-actions">
-                                <button id="btn-cancel-upload" class="btn btn-outline btn-compact">Cancel</button>
+                                <button id="btn-cancel-upload" class="btn btn-outline btn-compact">ยกเลิก</button>
                                 <button id="btn-confirm-upload" class="btn btn-primary btn-compact">
                                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:0.3rem">
                                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
                                         <polyline points="17 8 12 3 7 8"></polyline>
                                         <line x1="12" y1="3" x2="12" y2="15"></line>
                                     </svg>
-                                    Upload
+                                    อัปโหลด
                                 </button>
                             </div>
                             <div id="upload-progress" class="upload-progress hidden">
