@@ -803,6 +803,7 @@ SYNC_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'sync_config.json')
 def _load_sync_config():
     """Load toggle states from disk, defaulting to all-OFF."""
     defaults = {'master': False, 'ledger': False, 'customer': False, 'invoice': False}
+    watcher_debug = False
     if os.path.isfile(SYNC_CONFIG_FILE):
         try:
             with open(SYNC_CONFIG_FILE, 'r') as f:
@@ -810,20 +811,23 @@ def _load_sync_config():
             for key in defaults:
                 if key in saved:
                     defaults[key] = bool(saved[key])
-            print(f"[AutoSync] Loaded toggle config from {SYNC_CONFIG_FILE}: {defaults}")
+            watcher_debug = bool(saved.get('watcher_debug', False))
+            print(f"[Sync] Loaded toggle config from {SYNC_CONFIG_FILE}: {defaults}, watcher_debug={watcher_debug}")
         except Exception as e:
-            print(f"[AutoSync] Error reading sync config, using defaults: {e}")
-    return defaults
+            print(f"[Sync] Error reading sync config, using defaults: {e}")
+    return defaults, watcher_debug
 
 def _save_sync_config():
-    """Persist current toggle states to disk."""
+    """Persist current toggle states and watcher_debug to disk."""
     try:
+        data = dict(_sync_enabled)
+        data['watcher_debug'] = _watcher_debug
         with open(SYNC_CONFIG_FILE, 'w') as f:
-            json.dump(_sync_enabled, f)
+            json.dump(data, f)
     except Exception as e:
-        print(f"[AutoSync] Error saving sync config: {e}")
+        print(f"[Sync] Error saving sync config: {e}")
 
-_sync_enabled = _load_sync_config()
+_sync_enabled, _watcher_debug = _load_sync_config()
 
 FILE_CHECK_INTERVAL = 30  # seconds between file change checks
 
@@ -908,8 +912,16 @@ def _get_file_sizes(source_key):
     return sizes
 
 
-def _run_sync_task(source_key):
-    """Run extraction for a given source type in the current thread."""
+def _run_sync_task(source_key, trigger='auto'):
+    """Run extraction for a given source type in the current thread.
+    
+    Args:
+        source_key: which data source to sync (master/ledger/customer/invoice)
+        trigger: 'auto' (file watcher), 'manual' (user button), or 'startup' (staleness check)
+    """
+    # Dynamic log tag based on trigger origin
+    _tag = {'auto': '[AutoSync]', 'manual': '[ManualSync]', 'startup': '[StartupSync]'}.get(trigger, '[Sync]')
+
     with _sync_lock:
         if _sync_state[source_key]['status'] == 'syncing':
             return  # Already running
@@ -1042,7 +1054,7 @@ def _run_sync_task(source_key):
                     conn.commit()
                 conn.close()
             except Exception as e:
-                print(f'[AutoSync] Error computing product diff: {e}')
+                print(f'{_tag} Error computing product diff: {e}')
 
             # New moves with today's date
             for m in all_ledger_moves:
@@ -1099,7 +1111,7 @@ def _run_sync_task(source_key):
             log_parts = [f'{n_prod} products', f'{n_moves} moves', f'{n_det} today-sales']
             if n_disappeared > 0:
                 log_parts.append(f'⚠️  {n_disappeared} DISAPPEARED')
-            print(f'[AutoSync] Changes detected: {", ".join(log_parts)}')
+            print(f'{_tag} Changes detected: {", ".join(log_parts)}')
 
         _sync_state[source_key]['status'] = 'done'
         _sync_state[source_key]['progress'] = 'Sync complete'
@@ -1110,7 +1122,7 @@ def _run_sync_task(source_key):
         elapsed = time.time() - sync_start_time
         elapsed_min = int(elapsed // 60)
         elapsed_sec = elapsed % 60
-        print(f"[AutoSync] {source_key} sync completed successfully. (Time: {elapsed_min}m {elapsed_sec:.1f}s)")
+        print(f"{_tag} {source_key} sync completed successfully. (Time: {elapsed_min}m {elapsed_sec:.1f}s)")
 
     except Exception as e:
         _sync_state[source_key]['status'] = 'error'
@@ -1122,7 +1134,7 @@ def _run_sync_task(source_key):
         elapsed = time.time() - sync_start_time
         elapsed_min = int(elapsed // 60)
         elapsed_sec = elapsed % 60
-        print(f"[AutoSync] {source_key} sync failed: {e} (Time: {elapsed_min}m {elapsed_sec:.1f}s)")
+        print(f"{_tag} {source_key} sync failed: {e} (Time: {elapsed_min}m {elapsed_sec:.1f}s)")
 
     # Reset to idle after a brief delay so the UI can show the result
     def _reset_to_idle():
@@ -1195,15 +1207,15 @@ def _handle_disappeared_transactions(disappeared_keys, old_details):
         print(f"[AutoSync] Error writing disappeared transactions log: {e}")
 
     # Console alert
-    print(f"[AutoSync] ⚠️  DISAPPEARED: {len(disappeared_keys)} transaction(s) "
+    print(f"[Sync] ⚠️  DISAPPEARED: {len(disappeared_keys)} transaction(s) "
           f"missing from ERP! ({len(recent)} recent, {sum(older.values())} older)")
-    print(f"[AutoSync]    Logged to {log_path}")
+    print(f"[Sync]    Logged to {log_path}")
     if recent:
         for t in recent[:5]:
-            print(f"[AutoSync]    - {t['date']} {t['doc_ref']} {t['part_code']} "
+            print(f"[Sync]    - {t['date']} {t['doc_ref']} {t['part_code']} "
                   f"in={t['qty_in']} out={t['qty_out']}")
         if len(recent) > 5:
-            print(f"[AutoSync]    ... and {len(recent) - 5} more recent")
+            print(f"[Sync]    ... and {len(recent) - 5} more recent")
 
 
 def _reload_master_from_csv():
@@ -1318,15 +1330,15 @@ def _check_startup_staleness():
 
     if stale_sources:
         names = ', '.join(f'{k} ({reason})' for k, reason in stale_sources)
-        print(f"[AutoSync] Startup staleness detected: {names}")
+        print(f"[StartupSync] Staleness detected: {names}")
         for source_key, reason in stale_sources:
             if _sync_state[source_key]['status'] == 'idle':
-                print(f"[AutoSync] Triggering startup sync for: {source_key} ({reason})")
-                t = threading.Thread(target=_run_sync_task, args=(source_key,), daemon=True)
+                print(f"[StartupSync] Triggering sync for: {source_key} ({reason})")
+                t = threading.Thread(target=_run_sync_task, args=(source_key,), kwargs={'trigger': 'startup'}, daemon=True)
                 t.start()
                 time.sleep(1)  # Stagger launches slightly
     else:
-        print("[AutoSync] All local data is up to date — no startup sync needed.")
+        print("[StartupSync] All local data is up to date — no startup sync needed.")
 
 
 def _file_watcher_loop():
@@ -1362,13 +1374,19 @@ def _file_watcher_loop():
                         if fpath not in old_sizes or old_sizes[fpath] != size:
                             changed = True
                             old_sz = old_sizes.get(fpath, '?')
-                            print(f"[AutoSync] Size changed in {os.path.basename(fpath)} for {source_key}: {old_sz} -> {size}")
+                            if _watcher_debug:
+                                print(f"[AutoSync] Size changed in {os.path.basename(fpath)} for {source_key}: {old_sz} -> {size}")
                             break
+
+                if _watcher_debug and not changed:
+                    print(f"[AutoSync] No change for {source_key}")
 
                 if changed and _sync_state[source_key]['status'] == 'idle':
                     if not _sync_enabled.get(source_key, False):
                         # Auto-sync disabled for this source — update sizes silently
                         _sync_state[source_key]['last_size'] = current_sizes
+                        if _watcher_debug:
+                            print(f"[AutoSync] Change detected in {source_key} but auto-sync is OFF — skipped")
                         continue
                     print(f"[AutoSync] Triggering background sync for: {source_key}")
                     t = threading.Thread(target=_run_sync_task, args=(source_key,), daemon=True)
@@ -1441,13 +1459,16 @@ def sync_status():
 
 @app.route('/api/sync/config', methods=['GET'])
 def get_sync_config():
-    """Return current auto-sync enabled/disabled state for each source."""
-    return jsonify(_sync_enabled)
+    """Return current auto-sync enabled/disabled state for each source, plus watcher_debug."""
+    result = dict(_sync_enabled)
+    result['watcher_debug'] = _watcher_debug
+    return jsonify(result)
 
 
 @app.route('/api/sync/config', methods=['POST'])
 def set_sync_config():
-    """Update auto-sync enabled/disabled state per source."""
+    """Update auto-sync enabled/disabled state per source, and watcher_debug."""
+    global _watcher_debug
     data = request.get_json(force=True)
     changed = []
     for key in _sync_enabled:
@@ -1457,12 +1478,19 @@ def set_sync_config():
                 _sync_enabled[key] = new_val
                 changed.append(key)
                 state_str = 'ON' if new_val else 'OFF'
-                print(f"[AutoSync] {key} auto-sync turned {state_str}")
+                print(f"[Sync] {key} auto-sync turned {state_str}")
+    # Handle watcher_debug toggle
+    if 'watcher_debug' in data:
+        new_debug = bool(data['watcher_debug'])
+        if _watcher_debug != new_debug:
+            _watcher_debug = new_debug
+            changed.append('watcher_debug')
+            print(f"[Sync] Watcher debug logging turned {'ON' if new_debug else 'OFF'}")
     # Broadcast config change to all SSE clients
     if changed:
         _save_sync_config()
-    _broadcast_sync_event('config_update', {'enabled': dict(_sync_enabled)})
-    return jsonify({'success': True, 'enabled': dict(_sync_enabled), 'changed': changed})
+    _broadcast_sync_event('config_update', {'enabled': dict(_sync_enabled), 'watcher_debug': _watcher_debug})
+    return jsonify({'success': True, 'enabled': dict(_sync_enabled), 'watcher_debug': _watcher_debug, 'changed': changed})
 
 
 @app.route('/api/sync/trigger/<source_key>', methods=['POST'])
@@ -1474,7 +1502,7 @@ def trigger_sync(source_key):
     if _sync_state[source_key]['status'] == 'syncing':
         return jsonify({'success': False, 'message': f'{source_key} is already syncing'})
 
-    t = threading.Thread(target=_run_sync_task, args=(source_key,), daemon=True)
+    t = threading.Thread(target=_run_sync_task, args=(source_key,), kwargs={'trigger': 'manual'}, daemon=True)
     t.start()
     return jsonify({'success': True, 'message': f'{source_key} sync started in background'})
 
@@ -2959,7 +2987,7 @@ if __name__ == '__main__':
     # Start auto-backup scheduler
     _start_auto_backup_scheduler()
     print(f"Available at: http://localhost:{args.port}")
-    print("[AutoSync] Background file watcher active — monitoring Z:\\ for changes every", FILE_CHECK_INTERVAL, "seconds")
+    print("[Sync] Background file watcher active — monitoring Z:\\ for changes every", FILE_CHECK_INTERVAL, "seconds")
 
     if args.production:
         try:

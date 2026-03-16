@@ -158,6 +158,27 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Watcher Debug Log Toggle -->
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: var(--radius-md);">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <h3 style="margin: 0; font-size: 0.9rem; color: var(--text-secondary);">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="vertical-align: -3px; margin-right: 0.3rem;">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                            Watcher Debug Log
+                        </h3>
+                        <p style="margin: 0.3rem 0 0; font-size: 0.75rem; color: var(--text-secondary); opacity: 0.7;">
+                            Output file watcher status to server console every check cycle
+                        </p>
+                    </div>
+                    <label class="backup-toggle" title="Watcher debug logging">
+                        <input type="checkbox" id="watcher-debug-toggle">
+                        <span class="backup-toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
         </div>
     </div>
 

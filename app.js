@@ -478,15 +478,15 @@ async function loadSyncChanges() {
                 state.syncDetectionTimes = new Map(Object.entries(data.detection_times));
             }
             renderProducts();
-            console.log(`[AutoSync] Loaded ${data.changed_product_skus.length} product highlight(s) from server`);
+            console.log(`[Sync] Loaded ${data.changed_product_skus.length} product highlight(s) from server`);
         }
         if (data.new_move_keys && data.new_move_keys.length > 0) {
             state.syncNewMoveKeys = new Set(data.new_move_keys);
-            console.log(`[AutoSync] Loaded ${data.new_move_keys.length} move highlight(s) from server`);
+            console.log(`[Sync] Loaded ${data.new_move_keys.length} move highlight(s) from server`);
         }
     } catch (err) {
         // Not critical — highlights just won't show for new arrivals
-        console.log('[AutoSync] No sync changes available from server');
+        console.log('[Sync] No sync changes available from server');
     }
 }
 
@@ -3909,6 +3909,7 @@ function _openAdminPanel() {
     modal.classList.remove('hidden');
     _loadAdminUsers();
     _loadBackupList();
+    _loadWatcherDebugState();
     _setupAdminHandlers();
 
     // Close button
@@ -4016,6 +4017,22 @@ function _setupAdminHandlers() {
             e.target.checked = !enabled; // Revert toggle
         }
     });
+
+    // Watcher debug toggle
+    document.getElementById('watcher-debug-toggle').addEventListener('change', async (e) => {
+        const enabled = e.target.checked;
+        try {
+            await fetch('/api/sync/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ watcher_debug: enabled })
+            });
+            console.log(`[Sync] Watcher debug logging ${enabled ? 'enabled' : 'disabled'}`);
+        } catch (err) {
+            console.error('[Sync] Failed to update watcher debug setting', err);
+            e.target.checked = !enabled; // Revert toggle
+        }
+    });
 }
 
 
@@ -4096,6 +4113,18 @@ function _showBackupStatus(message, type) {
     // Auto-hide after 5s
     clearTimeout(el._hideTimer);
     el._hideTimer = setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+async function _loadWatcherDebugState() {
+    const toggle = document.getElementById('watcher-debug-toggle');
+    if (!toggle) return;
+    try {
+        const res = await fetch('/api/sync/config');
+        const data = await res.json();
+        toggle.checked = !!data.watcher_debug;
+    } catch (err) {
+        console.error('[Sync] Failed to load watcher debug state', err);
+    }
 }
 
 async function _loadBackupList() {
