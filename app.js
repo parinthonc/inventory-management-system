@@ -857,7 +857,7 @@ function setupEventListeners() {
     const _pfProgressBar  = document.getElementById('pf-upload-progress');
     const _pfProgressInner = document.getElementById('pf-upload-progress-bar');
 
-    // Helper: add a single file's preview thumbnail
+    // Helper: add a single file's preview thumbnail (with delete button)
     function _pfAddPreviewThumb(file) {
         const thumb = document.createElement('div');
         thumb.className = 'upload-preview-thumb';
@@ -866,6 +866,25 @@ function setupEventListeners() {
         img.src = blobUrl;
         img.onload = () => URL.revokeObjectURL(blobUrl); // Free memory after render
         thumb.appendChild(img);
+        // Delete button to remove this photo before uploading
+        const delBtn = document.createElement('button');
+        delBtn.className = 'upload-preview-delete-btn';
+        delBtn.type = 'button';
+        delBtn.title = 'ลบรูปนี้ / Remove';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = _pfPendingFiles.indexOf(file);
+            if (idx > -1) _pfPendingFiles.splice(idx, 1);
+            thumb.remove();
+            _pfUpdateLabel();
+            // If no files left, close the overlay
+            if (_pfPendingFiles.length === 0) {
+                _pfHideOverlay();
+                _photoFlagsUploadSku = null;
+            }
+        });
+        thumb.appendChild(delBtn);
         const name = document.createElement('span');
         name.className = 'upload-preview-name';
         name.textContent = file.name;
@@ -2281,7 +2300,7 @@ function _setupUploadHandlers() {
 
     let _isAddingMore = false;  // true when user taps "เพิ่มรูป"
 
-    // Helper: add a single file's preview thumbnail to the preview area
+    // Helper: add a single file's preview thumbnail to the preview area (with delete button)
     function _addPreviewThumb(file) {
         const previewArea = document.getElementById('upload-preview-area');
         const thumb = document.createElement('div');
@@ -2289,6 +2308,24 @@ function _setupUploadHandlers() {
         const img = document.createElement('img');
         img.src = URL.createObjectURL(file);
         thumb.appendChild(img);
+        // Delete button to remove this photo before uploading
+        const delBtn = document.createElement('button');
+        delBtn.className = 'upload-preview-delete-btn';
+        delBtn.type = 'button';
+        delBtn.title = 'ลบรูปนี้ / Remove';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = _pendingUploadFiles.indexOf(file);
+            if (idx > -1) _pendingUploadFiles.splice(idx, 1);
+            thumb.remove();
+            _updateUploadLabel();
+            // If no files left, hide the upload dialog
+            if (_pendingUploadFiles.length === 0) {
+                uploadDialog.classList.add('hidden');
+            }
+        });
+        thumb.appendChild(delBtn);
         const name = document.createElement('span');
         name.className = 'upload-preview-name';
         name.textContent = file.name;
