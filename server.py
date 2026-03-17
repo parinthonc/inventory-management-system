@@ -3219,6 +3219,8 @@ def _photo_flags_order(sort_by, sort_dir):
         'part_code': 'p.part_code',
         'name_eng': 'p.name_eng',
         'brand': 'p.brand',
+        'locations': 'p.locations',
+        'qty': 'p.qty',
         'flagged_at': 'pf.flagged_at',
         'flagged_by': 'pf.flagged_by',
     }

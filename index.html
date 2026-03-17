@@ -709,6 +709,8 @@
                                     <th class="sortable" data-sort="name_eng">Description <span
                                             class="sort-arrow"></span></th>
                                     <th class="sortable" data-sort="brand">Brand <span class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="locations">คลัง <span class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="qty">QTY <span class="sort-arrow"></span></th>
                                     <th>หมายเหตุ</th>
                                     <th class="sortable" data-sort="flagged_by">แจ้งโดย <span
                                             class="sort-arrow"></span></th>
@@ -719,7 +721,7 @@
                             </thead>
                             <tbody id="photo-flags-list">
                                 <tr>
-                                    <td colspan="8" class="text-center py-8">
+                                    <td colspan="10" class="text-center py-8">
                                         <div class="spinner"></div>
                                         <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
                                     </td>
@@ -747,6 +749,42 @@
                     </div>
                 </section>
             </div> <!-- End Photo Flags View -->
+
+            <!-- Photo Flags Batch Upload Overlay -->
+            <div id="pf-upload-overlay" class="pf-upload-overlay hidden">
+                <div class="pf-upload-card card glass-dark">
+                    <div class="pf-upload-header">
+                        <h3>📷 อัปโหลดรูปภาพ</h3>
+                        <span id="pf-upload-sku" class="pf-upload-sku"></span>
+                    </div>
+                    <div class="pf-upload-preview" id="pf-upload-preview-area"></div>
+                    <button id="pf-btn-add-more" class="btn btn-outline btn-compact pf-btn-add-more" type="button">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:0.3rem">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        เพิ่มรูป / Add More Photos
+                    </button>
+                    <div class="pf-upload-fields">
+                        <label for="pf-upload-comment" class="upload-label">คำอธิบาย (ไม่บังคับ)</label>
+                        <input type="text" id="pf-upload-comment" class="upload-comment-input" placeholder="เพิ่มคำอธิบาย / Add a description...">
+                    </div>
+                    <div class="pf-upload-actions">
+                        <button id="pf-btn-cancel-upload" class="btn btn-outline btn-compact">ยกเลิก</button>
+                        <button id="pf-btn-confirm-upload" class="btn btn-primary btn-compact">
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:0.3rem">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            อัปโหลด
+                        </button>
+                    </div>
+                    <div id="pf-upload-progress" class="upload-progress hidden">
+                        <div class="upload-progress-bar" id="pf-upload-progress-bar"></div>
+                    </div>
+                </div>
+            </div>
 
             <!-- ===== VIEW ประวัติลูกค้า ===== -->
             <div id="view-customer" class="view-panel hidden">

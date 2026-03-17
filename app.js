@@ -575,6 +575,7 @@ function setupSortableHeaders(tableSelector, sortKey, dirKey, fetchFn, defaultSo
             if (sortKey === 'sort') state.page = 1;
             else if (sortKey === 'movesSort') state.movesPage = 1;
             else if (sortKey === 'flagsSort') state.flagsPage = 1;
+            else if (sortKey === 'photoFlagsSort') state.photoFlagsPage = 1;
             else if (sortKey === 'invoicesSort') state.invoicesPage = 1;
 
             fetchFn();
@@ -826,9 +827,169 @@ function setupEventListeners() {
         });
     }
 
-    // Resolve (remove photo flag) button – delegated listener
+    // --- Batch upload from photo flags table (mirrors product modal UX) ---
+    let _photoFlagsUploadSku = null;
+    let _pfPendingFiles = [];          // accumulates across multiple picks
+    let _pfIsAddingMore = false;       // true when tapping "เพิ่มรูป"
+
+    const _pfFileInput = document.createElement('input');
+    _pfFileInput.type = 'file';
+    _pfFileInput.accept = 'image/jpeg,image/png,image/webp';
+    _pfFileInput.setAttribute('capture', 'environment');
+    _pfFileInput.multiple = true;
+    _pfFileInput.style.display = 'none';
+    document.body.appendChild(_pfFileInput);
+
+    const _pfOverlay      = document.getElementById('pf-upload-overlay');
+    const _pfPreviewArea  = document.getElementById('pf-upload-preview-area');
+    const _pfSkuLabel     = document.getElementById('pf-upload-sku');
+    const _pfAddMoreBtn   = document.getElementById('pf-btn-add-more');
+    const _pfCancelBtn    = document.getElementById('pf-btn-cancel-upload');
+    const _pfConfirmBtn   = document.getElementById('pf-btn-confirm-upload');
+    const _pfCommentInput = document.getElementById('pf-upload-comment');
+    const _pfProgressBar  = document.getElementById('pf-upload-progress');
+    const _pfProgressInner = document.getElementById('pf-upload-progress-bar');
+
+    // Helper: add a single file's preview thumbnail
+    function _pfAddPreviewThumb(file) {
+        const thumb = document.createElement('div');
+        thumb.className = 'upload-preview-thumb';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        thumb.appendChild(img);
+        const name = document.createElement('span');
+        name.className = 'upload-preview-name';
+        name.textContent = file.name;
+        thumb.appendChild(name);
+        _pfPreviewArea.appendChild(thumb);
+    }
+
+    // Helper: update confirm button count badge
+    function _pfUpdateLabel() {
+        const count = _pfPendingFiles.length;
+        _pfConfirmBtn.querySelector('.upload-count')?.remove();
+        if (count > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'upload-count';
+            badge.textContent = ` (${count} รูป)`;
+            _pfConfirmBtn.appendChild(badge);
+        }
+    }
+
+    // Helper: open / close the overlay
+    function _pfShowOverlay() { _pfOverlay.classList.remove('hidden'); }
+    function _pfHideOverlay() {
+        _pfOverlay.classList.add('hidden');
+        _pfPendingFiles = [];
+        _pfPreviewArea.innerHTML = '';
+        _pfCommentInput.value = '';
+        _pfConfirmBtn.querySelector('.upload-count')?.remove();
+        _pfProgressBar.classList.add('hidden');
+        _pfProgressInner.style.width = '0%';
+        _pfConfirmBtn.disabled = false;
+        if (_pfAddMoreBtn) _pfAddMoreBtn.disabled = false;
+    }
+
+    // File input change → show preview or append
+    _pfFileInput.addEventListener('change', (e) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        if (!_pfIsAddingMore) {
+            // Fresh upload: reset everything
+            _pfPendingFiles = [];
+            _pfPreviewArea.innerHTML = '';
+            _pfCommentInput.value = '';
+        }
+
+        // Append new files
+        Array.from(files).forEach(file => {
+            _pfPendingFiles.push(file);
+            _pfAddPreviewThumb(file);
+        });
+
+        _pfUpdateLabel();
+        _pfShowOverlay();
+        _pfIsAddingMore = false;
+        _pfFileInput.value = '';  // Reset so same file can be selected again
+    });
+
+    // "เพิ่มรูป / Add More" button
+    if (_pfAddMoreBtn) {
+        _pfAddMoreBtn.addEventListener('click', () => {
+            _pfIsAddingMore = true;
+            _pfFileInput.click();
+        });
+    }
+
+    // Cancel
+    _pfCancelBtn.addEventListener('click', () => {
+        _pfHideOverlay();
+        _photoFlagsUploadSku = null;
+    });
+
+    // Confirm upload
+    _pfConfirmBtn.addEventListener('click', async () => {
+        if (_pfPendingFiles.length === 0 || !_photoFlagsUploadSku) return;
+
+        const sku = _photoFlagsUploadSku;
+        const comment = _pfCommentInput.value.trim();
+
+        _pfConfirmBtn.disabled = true;
+        if (_pfAddMoreBtn) _pfAddMoreBtn.disabled = true;
+        _pfProgressBar.classList.remove('hidden');
+        _pfProgressInner.style.width = '30%';
+
+        try {
+            const formData = new FormData();
+            _pfPendingFiles.forEach(file => formData.append('files', file));
+            if (comment) formData.append('comment', comment);
+
+            _pfProgressInner.style.width = '60%';
+
+            const res = await fetch(`/api/products/${sku}/images/upload`, {
+                method: 'POST',
+                body: formData,
+            });
+            const data = await res.json();
+
+            _pfProgressInner.style.width = '100%';
+
+            if (data.success) {
+                const count = data.uploaded ? data.uploaded.length : _pfPendingFiles.length;
+                alert(`อัปโหลดสำเร็จ ${count} รูป`);
+                if (data.errors && data.errors.length > 0) {
+                    alert('บางไฟล์มีปัญหา:\n' + data.errors.join('\n'));
+                }
+                fetchPhotoFlags();
+                fetchProducts();
+            } else {
+                alert('อัปโหลดไม่สำเร็จ: ' + (data.error || data.errors?.join('\n') || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error('Photo flags batch upload error:', err);
+            alert('อัปโหลดไม่สำเร็จ: ' + err.message);
+        } finally {
+            _pfHideOverlay();
+            _photoFlagsUploadSku = null;
+        }
+    });
+
+    // Resolve (remove photo flag) button + Upload button – delegated listener
     if (els.photoFlagsList) {
         els.photoFlagsList.addEventListener('click', async (e) => {
+            // --- Handle inline upload button ---
+            const uploadBtn = e.target.closest('.photo-upload-btn');
+            if (uploadBtn) {
+                e.stopPropagation();
+                _photoFlagsUploadSku = uploadBtn.dataset.sku;
+                _pfSkuLabel.textContent = uploadBtn.dataset.sku;
+                _pfIsAddingMore = false;
+                _pfFileInput.click();
+                return;
+            }
+
+            // --- Handle resolve/unflag button ---
             const btn = e.target.closest('.photo-unflag-btn');
             if (!btn) return;
             e.stopPropagation();
@@ -1782,7 +1943,7 @@ async function openModalInternal(product) {
 
     // Update photo-flag button text and disabled state based on flag state
     if (els.btnPhotoFlag) {
-        if (product.photo_flag) {
+        if (product.photo_flag || product.photo_flag_id) {
             els.btnPhotoFlag.innerHTML = '✅ แจ้งถ่ายรูปเพิ่มแล้ว';
             els.btnPhotoFlag.disabled = true;
             els.btnPhotoFlag.style.opacity = '0.5';
@@ -1799,7 +1960,7 @@ async function openModalInternal(product) {
     const existingPhotoBanner = document.querySelector('.modal-photo-flag-banner');
     if (existingPhotoBanner) existingPhotoBanner.remove();
 
-    if (product.photo_flag) {
+    if (product.photo_flag || product.photo_flag_id) {
         const photoNote = product.photo_flag_note ? `<div style="font-size: 0.8rem; margin-top: 0.2rem; opacity: 0.8;">${escapeHtml(product.photo_flag_note)}</div>` : '';
         const photoBy = product.photo_flagged_by ? `โดย ${escapeHtml(product.photo_flagged_by)}` : '';
         const photoDate = product.photo_flagged_at ? formatBuddhistDate(product.photo_flagged_at, true) : '';
@@ -3100,7 +3261,7 @@ async function fetchFlagsCount() {
 async function fetchPhotoFlags() {
     els.photoFlagsList.innerHTML = `
         <tr>
-            <td colspan="8" class="text-center py-8">
+            <td colspan="10" class="text-center py-8">
                 <div class="spinner"></div>
                 <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
             </td>
@@ -3132,7 +3293,7 @@ async function fetchPhotoFlags() {
         console.error("Error fetching photo flags:", err);
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center py-8 text-error">
+                <td colspan="10" class="text-center py-8 text-error">
                     โหลดรายการไม่สำเร็จ
                 </td>
             </tr>
@@ -3144,7 +3305,7 @@ function renderPhotoFlags() {
     if (state.photoFlags.length === 0) {
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center py-8 text-muted">
+                <td colspan="10" class="text-center py-8 text-muted">
                     ไม่มีรายการที่ต้องถ่ายรูป
                 </td>
             </tr>
@@ -3156,7 +3317,7 @@ function renderPhotoFlags() {
 
     state.photoFlags.forEach((f, idx) => {
         const tr = document.createElement('tr');
-        tr.onclick = (e) => { if (e.target.closest('.photo-unflag-btn')) return; openModal(f, idx); };
+        tr.onclick = (e) => { if (e.target.closest('.photo-unflag-btn') || e.target.closest('.photo-upload-btn')) return; openModal(f, idx); };
 
         const thumbContent = f.thumbnail
             ? `<img src="/images/${f.thumbnail}" alt="${f.part_code} thumbnail" loading="lazy">`
@@ -3172,7 +3333,16 @@ function renderPhotoFlags() {
             ? escapeHtml(f.photo_flag_note)
             : '<span class="text-muted">-</span>';
 
-        // Only show Resolve button for admin users
+        // Upload button (available to all users)
+        const uploadBtn = `<button class="btn photo-upload-btn" data-sku="${f.sku}" title="ถ่ายรูป / เลือกรูป">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; display: inline-block; vertical-align: text-bottom;">
+                        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"></path>
+                        <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                    ถ่ายรูป/เลือกรูป
+                </button>`;
+
+        // Resolve button (admin-only)
         const isAdmin = _currentUser && _currentUser.role === 'admin';
         const resolveBtn = isAdmin
             ? `<button class="btn btn-outline photo-unflag-btn" data-sku="${f.sku}" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; border-color: rgba(59,130,246,0.5); color: #3b82f6;">
@@ -3193,10 +3363,12 @@ function renderPhotoFlags() {
                 </div>
             </td>
             <td>${f.brand ? `<span class="brand-badge">${escapeHtml(f.brand)}</span>` : '<span class="text-muted">-</span>'}</td>
+            <td><span class="brand-badge location-badge">${f.locations || '-'}</span></td>
+            <td class="text-right" style="font-family: monospace; font-weight: 600;">${f.qty != null ? formatNumber(f.qty) : '-'}</td>
             <td style="max-width: 200px; word-break: break-word;">${noteHtml}</td>
             <td>${reporterHtml}</td>
             <td style="white-space: nowrap;">${dateStr}</td>
-            <td class="text-right">${resolveBtn}</td>
+            <td class="text-right"><div class="photo-flag-actions">${uploadBtn}${resolveBtn}</div></td>
         `;
 
         els.photoFlagsList.appendChild(tr);

@@ -1707,6 +1707,146 @@ h4 {
     transition: width 0.3s ease;
     width: 0%;
 }
+
+/* ─── Photo Flags Inline Upload Button ───────────────────────────────────── */
+
+.photo-flag-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    align-items: flex-end;
+}
+
+.photo-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0.6rem;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 6px;
+    color: #34d399;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    min-height: 36px;
+}
+
+.photo-upload-btn:hover:not(:disabled) {
+    background: rgba(16, 185, 129, 0.25);
+    border-color: rgba(16, 185, 129, 0.6);
+    color: #6ee7b7;
+}
+
+.photo-upload-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.photo-upload-btn svg {
+    flex-shrink: 0;
+}
+
+/* Tiny inline spinner for upload buttons */
+.spinner-tiny {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    border-top-color: #34d399;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+/* ─── Photo Flags Batch Upload Overlay ───────────────────────────────────── */
+
+.pf-upload-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.pf-upload-card {
+    width: 100%;
+    max-width: 480px;
+    padding: 1.25rem;
+    border-radius: var(--radius-lg, 12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(15, 23, 42, 0.97);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.pf-upload-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.pf-upload-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.pf-upload-sku {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: var(--accent-primary, #8b5cf6);
+    font-weight: 600;
+}
+
+.pf-upload-preview {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.75rem;
+    max-height: 200px;
+    overflow-y: auto;
+    min-height: 60px;
+    padding: 0.5rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-sm, 6px);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.pf-btn-add-more {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+    border-style: dashed;
+    font-size: 0.85rem;
+    padding: 0.5rem 0.75rem;
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.4);
+}
+
+.pf-btn-add-more:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: #3b82f6;
+}
+
+.pf-upload-fields {
+    margin-bottom: 0.75rem;
+}
+
+.pf-upload-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
 .modal-details {
     flex: 1;
     padding: 0.5rem 1rem;
@@ -2590,6 +2730,81 @@ h4 {
     #btn-report-issue {
         font-size: 1.1rem !important;
     }
+
+    /* Photo Flags Batch Upload Overlay: mobile optimizations */
+    .pf-upload-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+
+    .pf-upload-card {
+        max-width: 100%;
+        border-radius: var(--radius-lg, 12px) var(--radius-lg, 12px) 0 0;
+        padding: 1.25rem 1rem;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .pf-upload-header h3 {
+        font-size: 1.15rem;
+    }
+
+    .pf-upload-sku {
+        font-size: 1rem;
+    }
+
+    .pf-upload-preview {
+        max-height: 35vh;
+        min-height: 80px;
+    }
+
+    .pf-upload-preview .upload-preview-thumb img {
+        width: 64px;
+        height: 64px;
+    }
+
+    .pf-upload-preview .upload-preview-name {
+        max-width: 70px;
+        font-size: 0.65rem;
+    }
+
+    .pf-btn-add-more {
+        font-size: 0.95rem;
+        padding: 0.65rem 1rem;
+        min-height: 48px;
+    }
+
+    .pf-upload-fields .upload-comment-input {
+        font-size: 1rem;
+        padding: 0.6rem 0.75rem;
+        min-height: 48px;
+    }
+
+    .pf-upload-actions {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .pf-upload-actions .btn {
+        width: 100%;
+        padding: 0.7rem 1rem;
+        font-size: 1rem;
+        justify-content: center;
+        min-height: 48px;
+    }
+
+    #pf-btn-confirm-upload {
+        background: #059669 !important;
+        border-color: #10b981 !important;
+        color: #ffffff !important;
+        order: -1;
+    }
+
+    #pf-btn-cancel-upload {
+        background: rgba(255, 255, 255, 0.15) !important;
+        border: 2px solid rgba(255, 255, 255, 0.6) !important;
+        color: #ffffff !important;
+    }
 }
 
 /* ─── Extra small (≤480px): Mobile or very narrow windows ─────────────────── */
@@ -2654,6 +2869,12 @@ h4 {
     .custom-image-controls {
         order: unset;
         flex-basis: auto;
+    }
+
+    /* Photo Flags Overlay: tighter on very small screens */
+    .pf-upload-preview .upload-preview-thumb img {
+        width: 56px;
+        height: 56px;
     }
 
     .image-caption-bar {
