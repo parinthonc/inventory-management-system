@@ -1397,7 +1397,7 @@ let _galleryImages = [];  // array of {url, source, filename, comment, uploaded_
 
 async function fetchProductImages(sku) {
     try {
-        const res = await fetch(`/api/products/${sku}/images`);
+        const res = await fetch(`/api/products/${encodeURIComponent(sku)}/images`);
         const data = await res.json();
         // New API returns { images: [...], permissions: {...} }
         if (data && data.images) {
@@ -1520,30 +1520,30 @@ function renderProducts() {
                 </div>
             </td>
             <td>
-                <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">อัปเดต</span>' : ''}</div>
+                <div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(p.part_code || '')}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">อัปเดต</span>' : ''}</div>
                 ${flagIndicator}
                 ${photoFlagBadge}
             </td>
             <td>
-                <div class="suffix-indicator" title="${p.suffix_label}">
+                <div class="suffix-indicator" title="${escapeHtml(p.suffix_label || '')}">
                     <div class="suffix-dot ${suffixClass}"></div>
-                    <span>${p.suffix}</span>
+                    <span>${escapeHtml(p.suffix || '')}</span>
                 </div>
             </td>
             <td>
-                ${p.brand ? `<span class="brand-badge">${p.brand}</span>` : '<span class="text-muted">-</span>'}
+                ${p.brand ? `<span class="brand-badge">${escapeHtml(p.brand)}</span>` : '<span class="text-muted">-</span>'}
             </td>
             <td>
                 <div class="desc-cell">
-                    <div class="desc-eng" title="${p.name_eng}">${p.name_eng || '-'}</div>
-                    <div class="desc-thai" title="${p.name_thai}">${p.name_thai || '-'}</div>
+                    <div class="desc-eng" title="${escapeHtml(p.name_eng || '')}">${escapeHtml(p.name_eng || '-')}</div>
+                    <div class="desc-thai" title="${escapeHtml(p.name_thai || '')}">${escapeHtml(p.name_thai || '-')}</div>
                 </div>
             </td>
             <td>
-                <span class="text-muted" title="${p.size || ''}">${p.size || '-'}</span>
+                <span class="text-muted" title="${escapeHtml(p.size || '')}">${escapeHtml(p.size || '-')}</span>
             </td>
             <td>
-                <span class="brand-badge location-badge">${p.locations || '-'}</span>
+                <span class="brand-badge location-badge">${escapeHtml(p.locations || '-')}</span>
             </td>
             <td class="text-right">
                 <span class="qty-badge ${qtyClass}">${formatNumber(displayQty)}</span>
@@ -1674,23 +1674,17 @@ function switchTabInternal(tabName) {
         els.tabBtnMoves.classList.add('active');
         els.viewMoves.classList.remove('hidden');
 
-        if (state.moves.length === 0) {
-            fetchMoves();
-        }
+        fetchMoves();
     } else if (tabName === 'flags') {
         els.tabBtnFlags.classList.add('active');
         els.viewFlags.classList.remove('hidden');
 
-        if (state.flags.length === 0) {
-            fetchFlags();
-        }
+        fetchFlags();
     } else if (tabName === 'photo-flags') {
         if (els.tabBtnPhotoFlags) els.tabBtnPhotoFlags.classList.add('active');
         if (els.viewPhotoFlags) els.viewPhotoFlags.classList.remove('hidden');
 
-        if (state.photoFlags.length === 0) {
-            fetchPhotoFlags();
-        }
+        fetchPhotoFlags();
     } else if (tabName === 'customer') {
         if (els.tabBtnCustomer) els.tabBtnCustomer.classList.add('active');
         if (els.viewCustomer) els.viewCustomer.classList.remove('hidden');
@@ -2186,7 +2180,7 @@ async function hideImage(filename) {
     if (!confirm(`ส่งรูปภาพ "${filename}" ไปถังขยะ?\nSend this image to the Recycle Bin?`)) return;
 
     try {
-        const res = await fetch(`/api/products/${state.currentModalSku}/images/hide`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(state.currentModalSku)}/images/hide`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename })
@@ -2207,7 +2201,7 @@ async function unhideImage(hiddenName) {
     if (!state.currentModalSku) return;
 
     try {
-        const res = await fetch(`/api/products/${state.currentModalSku}/images/unhide`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(state.currentModalSku)}/images/unhide`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename: hiddenName })
@@ -2230,7 +2224,7 @@ async function permanentDeleteImage(hiddenName, wrapperEl) {
     if (!confirm(`ลบรูปภาพ "${originalName}" ถาวร?\nPermanently delete this image? This cannot be undone.`)) return;
 
     try {
-        const res = await fetch(`/api/products/${state.currentModalSku}/images/permanent-delete`, {
+        const res = await fetch(`/api/products/${encodeURIComponent(state.currentModalSku)}/images/permanent-delete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename: hiddenName })
@@ -2306,7 +2300,9 @@ function _setupUploadHandlers() {
         const thumb = document.createElement('div');
         thumb.className = 'upload-preview-thumb';
         const img = document.createElement('img');
-        img.src = URL.createObjectURL(file);
+        const blobUrl = URL.createObjectURL(file);
+        img.src = blobUrl;
+        img.onload = () => URL.revokeObjectURL(blobUrl); // Free memory after render
         thumb.appendChild(img);
         // Delete button to remove this photo before uploading
         const delBtn = document.createElement('button');
@@ -2431,10 +2427,11 @@ function _setupUploadHandlers() {
             console.error('Upload error:', err);
             alert('Upload failed: ' + err.message);
         } finally {
-            _pendingUploadFiles = null;
+            _pendingUploadFiles = [];
             fileInput.value = '';
             uploadDialog.classList.add('hidden');
             confirmBtn.disabled = false;
+            if (addMoreBtn) addMoreBtn.disabled = false;
             progressBar.classList.add('hidden');
             progressBarInner.style.width = '0%';
             // Refresh gallery to show new images
@@ -2469,7 +2466,7 @@ async function loadHiddenImages() {
     if (!state.currentModalSku) return;
 
     try {
-        const res = await fetch(`/api/products/${state.currentModalSku}/images/hidden`);
+        const res = await fetch(`/api/products/${encodeURIComponent(state.currentModalSku)}/images/hidden`);
         const hidden = await res.json();
 
         // Remove any existing hidden images from display
@@ -2744,7 +2741,7 @@ function highlightTitle(text, engineModels, forkliftBrands) {
 async function fetchAndRenderTitles(sku) {
     try {
         const [response, engineModels, forkliftBrands] = await Promise.all([
-            fetch(`/api/products/${sku}/titles`),
+            fetch(`/api/products/${encodeURIComponent(sku)}/titles`),
             getEngineList(),
             getForkliftBrands()
         ]);
@@ -2784,7 +2781,7 @@ async function fetchAndRenderTitles(sku) {
 // Stock History
 async function fetchAndRenderHistory(sku) {
     try {
-        const res = await fetch(`/api/products/${sku}/history`);
+        const res = await fetch(`/api/products/${encodeURIComponent(sku)}/history`);
         const history = await res.json();
 
         if (!history || history.length === 0) {
@@ -2842,7 +2839,7 @@ async function fetchAndRenderHistory(sku) {
 
 async function fetchAndRenderArchivedHistory(sku) {
     try {
-        const res = await fetch(`/api/products/${sku}/archived-history`);
+        const res = await fetch(`/api/products/${encodeURIComponent(sku)}/archived-history`);
         const history = await res.json();
 
         if (!history || history.length === 0) {
@@ -3684,7 +3681,8 @@ function renderPickupMode(data) {
     groupsEl.innerHTML = html;
     updatePickupProgress(totalChecked, totalItems);
 
-    // Click handler for items (delegated)
+    // Click handler for items (delegated) — remove first to prevent duplicates on re-render
+    groupsEl.removeEventListener('click', handlePickupItemClick);
     groupsEl.addEventListener('click', handlePickupItemClick);
 }
 
