@@ -3037,6 +3037,37 @@ h4 {
     flex-shrink: 0;
 }
 
+/* ─── Photo Flag Indicator Badge (blue, in product list) ─────────────────── */
+.flag-indicator.photo-flag {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    animation: none;
+}
+
+[data-theme="light"] .flag-indicator.photo-flag {
+    background: rgba(37, 99, 235, 0.1);
+    color: #2563eb;
+    border-color: rgba(37, 99, 235, 0.3);
+}
+
+/* ─── Modal Photo Flag Banner (blue) ─────────────────────────────────────── */
+.modal-photo-flag-banner {
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 0.75rem;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #93c5fd;
+    animation: flagBannerSlideIn 0.35s ease-out;
+}
+
+[data-theme="light"] .modal-photo-flag-banner {
+    background: rgba(37, 99, 235, 0.08);
+    border-color: rgba(37, 99, 235, 0.25);
+    color: #1d4ed8;
+}
+
 /* ─── Modal Flag Banner ──────────────────────────────────────────────────── */
 /* Prominent alert at top of modal when viewing a flagged product */
 

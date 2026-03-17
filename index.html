@@ -360,6 +360,7 @@
                 <button id="tab-btn-products" class="tab-btn active">Products</button>
                 <button id="tab-btn-moves" class="tab-btn">Stock Moves</button>
                 <button id="tab-btn-flags" class="tab-btn">รายการของไม่ตรงหน้าเครื่อง</button>
+                <button id="tab-btn-photo-flags" class="tab-btn">📷 รายการที่ต้องถ่ายรูปเพิ่ม</button>
                 <button id="tab-btn-customer" class="tab-btn">ประวัติลูกค้า</button>
                 <button id="tab-btn-invoice" class="tab-btn">ใบกำกับภาษี</button>
             </div>
@@ -675,6 +676,78 @@
                     </div>
                 </section>
             </div> <!-- End Stock Flags View -->
+
+            <!-- ===== PHOTO FLAGS VIEW ===== -->
+            <div id="view-photo-flags" class="view-panel hidden">
+                <section class="controls-panel card glass">
+                    <div class="search-box">
+                        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2"
+                            fill="none" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="photo-flags-search-input" placeholder="ค้นหารายการที่ต้องถ่ายรูป...">
+                    </div>
+                </section>
+
+                <section class="results-panel card glass">
+                    <div class="table-header">
+                        <h2>📷 รายการที่ต้องถ่ายรูปเพิ่ม <span id="photo-flags-results-count" class="badge">--</span></h2>
+                        <div class="pagination-info">
+                            Showing <span id="photo-flags-page-start">0</span> - <span id="photo-flags-page-end">0</span> of <span
+                                id="photo-flags-total-results">0</span>
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-img">Image</th>
+                                    <th class="sortable" data-sort="part_code">Part Code <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="name_eng">Description <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="brand">Brand <span class="sort-arrow"></span></th>
+                                    <th>หมายเหตุ</th>
+                                    <th class="sortable" data-sort="flagged_by">แจ้งโดย <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="sortable" data-sort="flagged_at">วันที่แจ้ง <span
+                                            class="sort-arrow"></span></th>
+                                    <th class="text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="photo-flags-list">
+                                <tr>
+                                    <td colspan="8" class="text-center py-8">
+                                        <div class="spinner"></div>
+                                        <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination-controls">
+                        <button id="photo-flags-btn-prev" class="btn btn-outline" disabled>
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                            Previous
+                        </button>
+                        <div class="page-numbers" id="photo-flags-page-numbers"></div>
+                        <button id="photo-flags-btn-next" class="btn btn-outline" disabled>
+                            Next
+                            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
+                                fill="none">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+            </div> <!-- End Photo Flags View -->
+
             <!-- ===== VIEW ประวัติลูกค้า ===== -->
             <div id="view-customer" class="view-panel hidden">
                 <section class="controls-panel card glass">
@@ -1058,15 +1131,21 @@
                         <!-- Reporting Section -->
                         <div class="report-section"
                             style="margin-top: 0.3rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 0.3rem;">
-                            <button id="btn-report-issue" class="btn btn-outline"
-                                style="width: 100%; border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; font-size: 0.9rem;">
-                                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2"
-                                    fill="none" style="margin-right:0.5rem">
-                                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
-                                    <line x1="4" y1="22" x2="4" y2="15"></line>
-                                </svg>
-                                รายงานของไม่ตรงหน้าเครื่อง
-                            </button>
+                            <div class="modal-action-buttons" style="display: flex; gap: 0.5rem;">
+                                <button id="btn-report-issue" class="btn btn-outline"
+                                    style="flex: 1; border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; font-size: 0.85rem;">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
+                                        fill="none" style="margin-right:0.3rem">
+                                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
+                                        <line x1="4" y1="22" x2="4" y2="15"></line>
+                                    </svg>
+                                    รายงานจำนวนของไม่ตรง
+                                </button>
+                                <button id="btn-photo-flag" class="btn btn-outline"
+                                    style="flex: 1; border-color: rgba(59, 130, 246, 0.5); color: #60a5fa; font-size: 0.85rem;">
+                                    📷 ต้องการรูปเพิ่ม
+                                </button>
+                            </div>
 
                             <div id="report-dialog" class="hidden"
                                 style="margin-top: 1rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: var(--radius-md);">
@@ -1127,6 +1206,22 @@
                                         Flag</button>
                                 </div>
                             </div>
+
+                            <!-- Photo Flag Dialog (hidden by default) -->
+                            <div id="photo-flag-dialog" class="hidden"
+                                style="margin-top: 0.75rem; background: rgba(59,130,246,0.08); padding: 0.75rem; border: 1px solid rgba(59,130,246,0.2); border-radius: var(--radius-md);">
+                                <label style="display: block; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--text-secondary);">หมายเหตุ (ไม่บังคับ)</label>
+                                <textarea id="photo-flag-note" rows="2" class="select-css"
+                                    style="width: 100%; border: 1px solid rgba(59,130,246,0.2); background: rgba(0,0,0,0.2); margin-bottom: 0.5rem;"
+                                    placeholder="เช่น ถ่ายรูปด้านข้างด้วย"></textarea>
+                                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                                    <button id="btn-cancel-photo-flag" class="btn btn-outline"
+                                        style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">ยกเลิก</button>
+                                    <button id="btn-submit-photo-flag" class="btn btn-primary"
+                                        style="padding: 0.4rem 0.8rem; background: #3b82f6; border:none; color:white; font-size: 0.85rem;">📷 ยืนยัน</button>
+                                </div>
+                            </div>
+
                         </div>
 
                     </div>

@@ -88,6 +88,25 @@ def init_flags_table():
 
 init_flags_table()
 
+def init_photo_flags_table():
+    """Create the photo_flags table for tracking products that need more photos.
+    Separate from stock_flags so a product can have both a stock flag and a photo flag."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS photo_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT NOT NULL UNIQUE,
+            note TEXT DEFAULT '',
+            flagged_at TEXT DEFAULT (datetime('now', 'localtime')),
+            flagged_by TEXT DEFAULT ''
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_photo_flags_table()
+
 # ─── Authentication System ────────────────────────────────────────────────────
 
 def init_auth_tables():
@@ -1669,9 +1688,11 @@ def get_products():
             # Filter products that had sales within the threshold using CSV-sourced last_sold_date
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                       CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
+                LEFT JOIN photo_flags pf ON p.sku = pf.sku
             """
             where_clause += " AND p.csv_last_sold_date IS NOT NULL AND p.csv_last_sold_date >= ?"
             params.append(threshold_date)
@@ -1685,9 +1706,11 @@ def get_products():
             # Default view: use CSV-sourced last_sold_date directly from products table
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                       CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
+                LEFT JOIN photo_flags pf ON p.sku = pf.sku
             """
             count_select_from = "SELECT COUNT(*) FROM products p"
             
@@ -1792,9 +1815,13 @@ def get_product_detail(sku):
         cursor = conn.cursor()
         cursor.execute('''
             SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                   f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by
+                   f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                   CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag,
+                   pf.note as photo_flag_note, pf.flagged_at as photo_flagged_at,
+                   pf.flagged_by as photo_flagged_by
             FROM products p
             LEFT JOIN stock_flags f ON p.sku = f.sku
+            LEFT JOIN photo_flags pf ON p.sku = pf.sku
             WHERE p.sku = ?
         ''', (sku,))
         row = cursor.fetchone()
@@ -3119,6 +3146,121 @@ def get_flags():
     total_items = cursor.fetchone()[0]
 
     query = query_select + where_clause + f" ORDER BY {_flags_order(sort_by, sort_dir)} LIMIT ? OFFSET ?"
+    query_params = list(params)
+    query_params.extend([per_page, (page - 1) * per_page])
+
+    cursor.execute(query, query_params)
+    flags = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    total_pages = math.ceil(total_items / per_page) if per_page else 1
+
+    return jsonify({
+        'items': flags,
+        'total': total_items,
+        'page': page,
+        'per_page': per_page,
+        'total_pages': total_pages
+    })
+
+
+# ─── Photo Flags API ──────────────────────────────────────────────────────────
+
+@app.route('/api/products/<sku>/photo-flag', methods=['POST'])
+def photo_flag_product(sku):
+    """Flag a product as needing more photos."""
+    data = request.json or {}
+    note = data.get('note', '')
+    flagged_by = session.get('user', '')
+
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Ensure product exists
+        cursor.execute('SELECT id FROM products WHERE sku = ?', (sku,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({'error': 'Product not found'}), 404
+
+        cursor.execute('''
+            INSERT INTO photo_flags (sku, note, flagged_at, flagged_by)
+            VALUES (?, ?, datetime('now', 'localtime'), ?)
+            ON CONFLICT(sku) DO UPDATE SET
+                note = excluded.note,
+                flagged_at = datetime('now', 'localtime'),
+                flagged_by = excluded.flagged_by
+        ''', (sku, note, flagged_by))
+
+        conn.commit()
+    finally:
+        conn.close()
+    print(f"[PhotoFlags] Product {sku} flagged for photos by {flagged_by}")
+    return jsonify({'status': 'success', 'message': 'Product flagged for photos'})
+
+
+@app.route('/api/products/<sku>/photo-flag', methods=['DELETE'])
+@admin_required
+def photo_unflag_product(sku):
+    """Resolve (remove) the photo flag for a product."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM photo_flags WHERE sku = ?', (sku,))
+    conn.commit()
+    conn.close()
+    username = session.get('user', 'unknown')
+    print(f"[PhotoFlags] Product {sku} photo-flag resolved by {username}")
+    return jsonify({'status': 'success', 'message': 'Photo flag resolved'})
+
+
+def _photo_flags_order(sort_by, sort_dir):
+    """Return a safe ORDER BY clause for the photo-flags endpoint."""
+    col_map = {
+        'part_code': 'p.part_code',
+        'name_eng': 'p.name_eng',
+        'brand': 'p.brand',
+        'flagged_at': 'pf.flagged_at',
+        'flagged_by': 'pf.flagged_by',
+    }
+    d = 'DESC' if sort_dir == 'desc' else 'ASC'
+    if sort_by in col_map:
+        return f"{col_map[sort_by]} {d}"
+    return "pf.flagged_at DESC"
+
+
+@app.route('/api/photo-flags')
+def get_photo_flags():
+    """List all products flagged as needing more photos, with pagination and search."""
+    search = request.args.get('search', '').strip()
+    sort_by = request.args.get('sort', '').strip()
+    sort_dir = request.args.get('dir', 'desc').lower()
+    page = int(request.args.get('page', 1))
+    per_page = max(1, int(request.args.get('per_page', 50)))
+
+    query_select = """
+        SELECT pf.id as photo_flag_id, pf.note as photo_flag_note,
+               pf.flagged_at as photo_flagged_at, pf.flagged_by as photo_flagged_by,
+               p.*
+        FROM photo_flags pf
+        JOIN products p ON pf.sku = p.sku
+    """
+
+    where_clause = " WHERE 1=1"
+    params = []
+
+    if search:
+        search_term = f"%{search}%"
+        where_clause += " AND (p.part_code LIKE ? OR p.name_eng LIKE ? OR p.name_thai LIKE ? OR p.sku LIKE ?)"
+        params.extend([search_term, search_term, search_term, search_term])
+
+    count_query = "SELECT COUNT(*) FROM photo_flags pf JOIN products p ON pf.sku = p.sku" + where_clause
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(count_query, params)
+    total_items = cursor.fetchone()[0]
+
+    query = query_select + where_clause + f" ORDER BY {_photo_flags_order(sort_by, sort_dir)} LIMIT ? OFFSET ?"
     query_params = list(params)
     query_params.extend([per_page, (page - 1) * per_page])
 

@@ -104,6 +104,16 @@ let state = {
     flagsSort: '',
     flagsSortDir: '',
 
+    // Photo Flags State
+    photoFlags: [],
+    photoFlagsSearch: '',
+    photoFlagsPage: 1,
+    photoFlagsPerPage: 50,
+    photoFlagsTotalItems: 0,
+    photoFlagsTotalPages: 0,
+    photoFlagsSort: '',
+    photoFlagsSortDir: '',
+
     // Customer Activity State
     customerActivity: [],
     customerSearch: '',
@@ -130,7 +140,7 @@ let state = {
     modalList: [],
     modalIndex: -1,
 
-    currentTab: 'products', // 'products', 'moves', 'flags', 'customer', 'invoice'
+    currentTab: 'products', // 'products', 'moves', 'flags', 'photo-flags', 'customer', 'invoice'
 
     // Sync change highlighting — sets of keys for newly detected items
     syncNewProductSkus: new Set(),
@@ -145,11 +155,13 @@ const els = {
     tabBtnMoves: document.getElementById('tab-btn-moves'),
     tabBtnFlags: document.getElementById('tab-btn-flags'),
     tabBtnCustomer: document.getElementById('tab-btn-customer'),
+    tabBtnPhotoFlags: document.getElementById('tab-btn-photo-flags'),
 
     // Views
     viewProducts: document.getElementById('view-products'),
     viewMoves: document.getElementById('view-moves'),
     viewFlags: document.getElementById('view-flags'),
+    viewPhotoFlags: document.getElementById('view-photo-flags'),
     viewCustomer: document.getElementById('view-customer'),
 
     // Stats
@@ -210,6 +222,17 @@ const els = {
     flagsBtnNext: document.getElementById('flags-btn-next'),
     flagsPageNumbers: document.getElementById('flags-page-numbers'),
 
+    // Photo Flags Tab
+    photoFlagsSearchInput: document.getElementById('photo-flags-search-input'),
+    photoFlagsList: document.getElementById('photo-flags-list'),
+    photoFlagsResultsCount: document.getElementById('photo-flags-results-count'),
+    photoFlagsPageStart: document.getElementById('photo-flags-page-start'),
+    photoFlagsPageEnd: document.getElementById('photo-flags-page-end'),
+    photoFlagsTotalResults: document.getElementById('photo-flags-total-results'),
+    photoFlagsBtnPrev: document.getElementById('photo-flags-btn-prev'),
+    photoFlagsBtnNext: document.getElementById('photo-flags-btn-next'),
+    photoFlagsPageNumbers: document.getElementById('photo-flags-page-numbers'),
+
     // Customer Activity
     customerSearchInput: document.getElementById('customer-search-input'),
     customerResultsCount: document.getElementById('customer-results-count'),
@@ -256,6 +279,13 @@ const els = {
     btnSubmitReport: document.getElementById('btn-submit-report'),
     reportNote: document.getElementById('report-note'),
     flagTypeRadios: document.getElementsByName('flag_type'),
+
+    // Modal Photo Flag Elements
+    btnPhotoFlag: document.getElementById('btn-photo-flag'),
+    photoFlagDialog: document.getElementById('photo-flag-dialog'),
+    photoFlagNote: document.getElementById('photo-flag-note'),
+    btnCancelPhotoFlag: document.getElementById('btn-cancel-photo-flag'),
+    btnSubmitPhotoFlag: document.getElementById('btn-submit-photo-flag'),
 
     // Refresh Master
     refreshMasterBtn: document.getElementById('refresh-master-btn'),
@@ -418,9 +448,9 @@ function handleNavigation() {
         return;
     }
 
-    // ── Plain tab: #products | #moves | #flags | #customer | #invoice ──
+    // ── Plain tab: #products | #moves | #flags | #photo-flags | #customer | #invoice ──
     const tabName = hash || 'products';
-    const validTabs = ['products', 'moves', 'flags', 'customer', 'invoice'];
+    const validTabs = ['products', 'moves', 'flags', 'photo-flags', 'customer', 'invoice'];
     if (validTabs.includes(tabName)) {
         // If we're going back to #customer from customer detail, show list
         if (tabName === 'customer' && state.customerDetailCode) {
@@ -451,6 +481,7 @@ async function init() {
     setupSortableHeaders('#view-products .data-table', 'sort', 'sortDir', fetchProducts, 'part_code', 'asc');
     setupSortableHeaders('#view-moves .data-table', 'movesSort', 'movesSortDir', fetchMoves, '', '');
     setupSortableHeaders('#view-flags .data-table', 'flagsSort', 'flagsSortDir', fetchFlags, '', '');
+    setupSortableHeaders('#view-photo-flags .data-table', 'photoFlagsSort', 'photoFlagsSortDir', fetchPhotoFlags, '', '');
     setupSortableHeaders('#invoice-table', 'invoicesSort', 'invoicesSortDir', fetchInvoices, 'invoice_date', 'desc');
 
     // Load sync changes from server (for users arriving after a sync completed)
@@ -458,6 +489,7 @@ async function init() {
 
     // Fetch flags count for tab badge (lightweight — just first page)
     fetchFlagsCount();
+    fetchPhotoFlagsCount();
 
     // Set initial hash (replaceState so we don't add an extra entry)
     if (!location.hash) {
@@ -565,6 +597,7 @@ function setupEventListeners() {
     els.tabBtnProducts.addEventListener('click', () => switchTab('products'));
     els.tabBtnMoves.addEventListener('click', () => switchTab('moves'));
     els.tabBtnFlags.addEventListener('click', () => switchTab('flags'));
+    if (els.tabBtnPhotoFlags) els.tabBtnPhotoFlags.addEventListener('click', () => switchTab('photo-flags'));
     if (els.tabBtnCustomer) els.tabBtnCustomer.addEventListener('click', () => switchTab('customer'));
     if (els.tabBtnInvoice) els.tabBtnInvoice.addEventListener('click', () => switchTab('invoice'));
 
@@ -768,6 +801,65 @@ function setupEventListeners() {
         }
     });
 
+    // --- PHOTO FLAGS ---
+    let photoFlagsDebounce;
+    if (els.photoFlagsSearchInput) {
+        els.photoFlagsSearchInput.addEventListener('input', (e) => {
+            clearTimeout(photoFlagsDebounce);
+            photoFlagsDebounce = setTimeout(() => {
+                state.photoFlagsSearch = e.target.value;
+                state.photoFlagsPage = 1;
+                fetchPhotoFlags();
+            }, 400);
+        });
+    }
+
+    if (els.photoFlagsBtnPrev) {
+        els.photoFlagsBtnPrev.addEventListener('click', () => {
+            if (state.photoFlagsPage > 1) { state.photoFlagsPage--; fetchPhotoFlags(); }
+        });
+    }
+
+    if (els.photoFlagsBtnNext) {
+        els.photoFlagsBtnNext.addEventListener('click', () => {
+            if (state.photoFlagsPage < state.photoFlagsTotalPages) { state.photoFlagsPage++; fetchPhotoFlags(); }
+        });
+    }
+
+    // Resolve (remove photo flag) button – delegated listener
+    if (els.photoFlagsList) {
+        els.photoFlagsList.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.photo-unflag-btn');
+            if (!btn) return;
+            e.stopPropagation();
+
+            if (!_currentUser || _currentUser.role !== 'admin') {
+                alert('เฉพาะ Admin เท่านั้นที่สามารถ Resolve ได้');
+                return;
+            }
+
+            const sku = btn.dataset.sku;
+            if (!confirm('ยืนยันว่าถ่ายรูปเรียบร้อยแล้ว?')) return;
+            try {
+                btn.disabled = true;
+                const res = await fetch(`/api/products/${sku}/photo-flag`, { method: 'DELETE' });
+                if (res.ok) {
+                    fetchPhotoFlags();
+                    fetchProducts();
+                } else if (res.status === 403) {
+                    alert('เฉพาะ Admin เท่านั้นที่สามารถ Resolve ได้');
+                    btn.disabled = false;
+                } else {
+                    alert('Failed to resolve photo flag.');
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                btn.disabled = false;
+            }
+        });
+    }
+
     // --- CUSTOMER ACTIVITY ---
     let customerDebounce;
     if (els.customerSearchInput) {
@@ -892,6 +984,54 @@ function setupEventListeners() {
     });
 
     els.btnSubmitReport.addEventListener('click', submitFlag);
+
+    // Handle Photo Flag Dialog Open/Close
+    if (els.btnPhotoFlag) {
+        els.btnPhotoFlag.addEventListener('click', () => {
+            els.photoFlagDialog.classList.toggle('hidden');
+        });
+    }
+
+    if (els.btnCancelPhotoFlag) {
+        els.btnCancelPhotoFlag.addEventListener('click', () => {
+            els.photoFlagDialog.classList.add('hidden');
+            els.photoFlagNote.value = '';
+        });
+    }
+
+    if (els.btnSubmitPhotoFlag) {
+        els.btnSubmitPhotoFlag.addEventListener('click', async () => {
+            const sku = state.currentModalSku;
+            if (!sku) return;
+            const note = els.photoFlagNote.value.trim();
+            try {
+                els.btnSubmitPhotoFlag.disabled = true;
+                els.btnSubmitPhotoFlag.textContent = 'กำลังส่ง...';
+                const res = await fetch(`/api/products/${sku}/photo-flag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ note })
+                });
+                if (res.ok) {
+                    alert('แจ้งต้องการรูปเพิ่มเรียบร้อยแล้ว');
+                    els.photoFlagDialog.classList.add('hidden');
+                    els.photoFlagNote.value = '';
+                    fetchProducts();
+                    if (state.photoFlags.length > 0) fetchPhotoFlags();
+                    fetchPhotoFlagsCount();
+                } else {
+                    const data = await res.json();
+                    alert(`Error: ${data.error || 'Failed to submit'}`);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('เกิดข้อผิดพลาด');
+            } finally {
+                els.btnSubmitPhotoFlag.disabled = false;
+                els.btnSubmitPhotoFlag.textContent = '📷 ยืนยัน';
+            }
+        });
+    }
 
     // Refresh Master button — non-blocking background sync
     els.refreshMasterBtn.addEventListener('click', async () => {
@@ -1167,6 +1307,13 @@ function renderProducts() {
                </div>`
             : '';
 
+        // Photo flag badge (camera icon)
+        const photoFlagBadge = p.photo_flag
+            ? `<div class="flag-indicator photo-flag">
+                 📷 ต้องการรูปเพิ่ม
+               </div>`
+            : '';
+
         tr.innerHTML = `
             <td>
                 <div class="thumb-cell">
@@ -1177,6 +1324,7 @@ function renderProducts() {
             <td>
                 <div style="font-family: monospace; font-size: 1.05rem;">${p.part_code}${state.syncNewProductSkus.has(p.sku) ? '<span class="sync-badge">อัปเดต</span>' : ''}</div>
                 ${flagIndicator}
+                ${photoFlagBadge}
             </td>
             <td>
                 <div class="suffix-indicator" title="${p.suffix_label}">
@@ -1310,12 +1458,14 @@ function switchTabInternal(tabName) {
     els.tabBtnProducts.classList.remove('active');
     els.tabBtnMoves.classList.remove('active');
     els.tabBtnFlags.classList.remove('active');
+    if (els.tabBtnPhotoFlags) els.tabBtnPhotoFlags.classList.remove('active');
     if (els.tabBtnCustomer) els.tabBtnCustomer.classList.remove('active');
     if (els.tabBtnInvoice) els.tabBtnInvoice.classList.remove('active');
 
     els.viewProducts.classList.add('hidden');
     els.viewMoves.classList.add('hidden');
     els.viewFlags.classList.add('hidden');
+    if (els.viewPhotoFlags) els.viewPhotoFlags.classList.add('hidden');
     if (els.viewCustomer) els.viewCustomer.classList.add('hidden');
     if (els.viewInvoice) els.viewInvoice.classList.add('hidden');
 
@@ -1335,6 +1485,13 @@ function switchTabInternal(tabName) {
 
         if (state.flags.length === 0) {
             fetchFlags();
+        }
+    } else if (tabName === 'photo-flags') {
+        if (els.tabBtnPhotoFlags) els.tabBtnPhotoFlags.classList.add('active');
+        if (els.viewPhotoFlags) els.viewPhotoFlags.classList.remove('hidden');
+
+        if (state.photoFlags.length === 0) {
+            fetchPhotoFlags();
         }
     } else if (tabName === 'customer') {
         if (els.tabBtnCustomer) els.tabBtnCustomer.classList.add('active');
@@ -1534,6 +1691,9 @@ function openModal(product, sourceIndex) {
     } else if (state.currentTab === 'flags') {
         state.modalList = [...state.flags];
         state.modalTotalItems = state.flagsTotalItems;
+    } else if (state.currentTab === 'photo-flags') {
+        state.modalList = [...state.photoFlags];
+        state.modalTotalItems = state.photoFlagsTotalItems;
     } else {
         state.modalList = [];
         state.modalTotalItems = 0;
@@ -1542,7 +1702,8 @@ function openModal(product, sourceIndex) {
     // Track how many pages are already loaded into modalList
     state.modalPagesLoaded = state.currentTab === 'products' ? state.page
         : state.currentTab === 'moves' ? state.movesPage
-            : state.currentTab === 'flags' ? state.flagsPage : 1;
+            : state.currentTab === 'flags' ? state.flagsPage
+                : state.currentTab === 'photo-flags' ? state.photoFlagsPage : 1;
     state.modalLoading = false;
 
     if (!_handlingPopstate) navPush('product/' + encodeURIComponent(product.sku));
@@ -1614,6 +1775,57 @@ async function openModalInternal(product) {
     els.reportDialog.classList.add('hidden');
     els.reportNote.value = '';
     els.flagTypeRadios.forEach(r => r.checked = false);
+
+    // ── Photo flag UI state in modal ────────────────────────────────
+    if (els.photoFlagDialog) els.photoFlagDialog.classList.add('hidden');
+    if (els.photoFlagNote) els.photoFlagNote.value = '';
+
+    // Update photo-flag button text and disabled state based on flag state
+    if (els.btnPhotoFlag) {
+        if (product.photo_flag) {
+            els.btnPhotoFlag.innerHTML = '✅ แจ้งถ่ายรูปเพิ่มแล้ว';
+            els.btnPhotoFlag.disabled = true;
+            els.btnPhotoFlag.style.opacity = '0.5';
+            els.btnPhotoFlag.style.cursor = 'not-allowed';
+        } else {
+            els.btnPhotoFlag.innerHTML = '📷 ต้องการรูปเพิ่ม';
+            els.btnPhotoFlag.disabled = false;
+            els.btnPhotoFlag.style.opacity = '1';
+            els.btnPhotoFlag.style.cursor = 'pointer';
+        }
+    }
+
+    // ── Photo flag banner at top of modal ────────────────────────────
+    const existingPhotoBanner = document.querySelector('.modal-photo-flag-banner');
+    if (existingPhotoBanner) existingPhotoBanner.remove();
+
+    if (product.photo_flag) {
+        const photoNote = product.photo_flag_note ? `<div style="font-size: 0.8rem; margin-top: 0.2rem; opacity: 0.8;">${escapeHtml(product.photo_flag_note)}</div>` : '';
+        const photoBy = product.photo_flagged_by ? `โดย ${escapeHtml(product.photo_flagged_by)}` : '';
+        const photoDate = product.photo_flagged_at ? formatBuddhistDate(product.photo_flagged_at, true) : '';
+        const infoLine = (photoBy || photoDate)
+            ? `<div style="font-size: 0.75rem; opacity: 0.7; margin-top: 0.15rem;">แจ้ง${photoBy ? ' ' + photoBy : ''}${photoDate ? ' • ' + photoDate : ''}</div>`
+            : '';
+        const photoBanner = document.createElement('div');
+        photoBanner.className = 'modal-photo-flag-banner';
+        photoBanner.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1.3rem;">📷</span>
+                <div>
+                    <div style="font-weight: 600;">ต้องการรูปเพิ่ม</div>
+                    ${photoNote}
+                    ${infoLine}
+                </div>
+            </div>
+        `;
+        const modalBody = els.modal.querySelector('.modal-body');
+        const existingStockBanner = modalBody.querySelector('.modal-flag-banner');
+        if (existingStockBanner) {
+            existingStockBanner.after(photoBanner);
+        } else {
+            modalBody.insertBefore(photoBanner, modalBody.firstChild);
+        }
+    }
 
     // Initial image load
     if (product.thumbnail) {
@@ -2880,6 +3092,199 @@ async function fetchFlagsCount() {
     } catch (err) {
         // Non-critical — badge just won't show
         console.log('[Flags] Could not fetch flag count for tab badge');
+    }
+}
+
+// ─── Photo Flags Specific Code ───────────────────────────────────────────────
+
+async function fetchPhotoFlags() {
+    els.photoFlagsList.innerHTML = `
+        <tr>
+            <td colspan="8" class="text-center py-8">
+                <div class="spinner"></div>
+                <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
+            </td>
+        </tr>
+    `;
+
+    const params = new URLSearchParams({
+        search: state.photoFlagsSearch,
+        sort: state.photoFlagsSort,
+        dir: state.photoFlagsSortDir,
+        page: state.photoFlagsPage,
+        per_page: state.photoFlagsPerPage
+    });
+
+    try {
+        const res = await fetch(`/api/photo-flags?${params}`);
+        const data = await res.json();
+
+        state.photoFlags = data.items;
+        state.photoFlagsTotalItems = data.total;
+        state.photoFlagsTotalPages = data.total_pages;
+        state.photoFlagsPage = data.page;
+
+        renderPhotoFlags();
+        updatePhotoFlagsPaginationInfo();
+        renderPhotoFlagsPaginationControls();
+        updatePhotoFlagsTabBadge(data.total);
+    } catch (err) {
+        console.error("Error fetching photo flags:", err);
+        els.photoFlagsList.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-8 text-error">
+                    โหลดรายการไม่สำเร็จ
+                </td>
+            </tr>
+        `;
+    }
+}
+
+function renderPhotoFlags() {
+    if (state.photoFlags.length === 0) {
+        els.photoFlagsList.innerHTML = `
+            <tr>
+                <td colspan="8" class="text-center py-8 text-muted">
+                    ไม่มีรายการที่ต้องถ่ายรูป
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    els.photoFlagsList.innerHTML = '';
+
+    state.photoFlags.forEach((f, idx) => {
+        const tr = document.createElement('tr');
+        tr.onclick = (e) => { if (e.target.closest('.photo-unflag-btn')) return; openModal(f, idx); };
+
+        const thumbContent = f.thumbnail
+            ? `<img src="/images/${f.thumbnail}" alt="${f.part_code} thumbnail" loading="lazy">`
+            : `<div class="thumb-placeholder"></div>`;
+
+        let dateStr = formatBuddhistDate(f.photo_flagged_at, true);
+
+        const reporterHtml = f.photo_flagged_by
+            ? `<strong>${escapeHtml(f.photo_flagged_by)}</strong>`
+            : '<span class="text-muted">-</span>';
+
+        const noteHtml = f.photo_flag_note
+            ? escapeHtml(f.photo_flag_note)
+            : '<span class="text-muted">-</span>';
+
+        // Only show Resolve button for admin users
+        const isAdmin = _currentUser && _currentUser.role === 'admin';
+        const resolveBtn = isAdmin
+            ? `<button class="btn btn-outline photo-unflag-btn" data-sku="${f.sku}" style="padding: 0.25rem 0.5rem; font-size: 0.85rem; border-color: rgba(59,130,246,0.5); color: #3b82f6;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; display: inline-block; vertical-align: text-bottom;">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                    ถ่ายแล้ว
+                </button>`
+            : '';
+
+        tr.innerHTML = `
+            <td><div class="thumb-cell">${thumbContent}</div></td>
+            <td><div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(f.part_code)}</div></td>
+            <td>
+                <div class="desc-cell">
+                    <div class="desc-eng">${escapeHtml(f.name_eng || '-')}</div>
+                    <div class="desc-thai">${escapeHtml(f.name_thai || '-')}</div>
+                </div>
+            </td>
+            <td>${f.brand ? `<span class="brand-badge">${escapeHtml(f.brand)}</span>` : '<span class="text-muted">-</span>'}</td>
+            <td style="max-width: 200px; word-break: break-word;">${noteHtml}</td>
+            <td>${reporterHtml}</td>
+            <td style="white-space: nowrap;">${dateStr}</td>
+            <td class="text-right">${resolveBtn}</td>
+        `;
+
+        els.photoFlagsList.appendChild(tr);
+    });
+}
+
+function updatePhotoFlagsPaginationInfo() {
+    els.photoFlagsResultsCount.textContent = formatNumber(state.photoFlagsTotalItems);
+    els.photoFlagsTotalResults.textContent = formatNumber(state.photoFlagsTotalItems);
+
+    if (state.photoFlagsTotalItems === 0) {
+        els.photoFlagsPageStart.textContent = '0';
+        els.photoFlagsPageEnd.textContent = '0';
+    } else {
+        const start = ((state.photoFlagsPage - 1) * state.photoFlagsPerPage) + 1;
+        const end = Math.min(state.photoFlagsPage * state.photoFlagsPerPage, state.photoFlagsTotalItems);
+        els.photoFlagsPageStart.textContent = formatNumber(start);
+        els.photoFlagsPageEnd.textContent = formatNumber(end);
+    }
+}
+
+function renderPhotoFlagsPaginationControls() {
+    els.photoFlagsBtnPrev.disabled = state.photoFlagsPage <= 1;
+    els.photoFlagsBtnNext.disabled = state.photoFlagsPage >= state.photoFlagsTotalPages;
+
+    els.photoFlagsPageNumbers.innerHTML = '';
+    if (state.photoFlagsTotalPages <= 1) return;
+
+    let startPage = Math.max(1, state.photoFlagsPage - 2);
+    let endPage = Math.min(state.photoFlagsTotalPages, startPage + 4);
+
+    if (endPage - startPage < 4) {
+        startPage = Math.max(1, endPage - 4);
+    }
+
+    if (startPage > 1) {
+        addPhotoFlagsPageButton(1);
+        if (startPage > 2) addEllipsis(els.photoFlagsPageNumbers);
+    }
+
+    for (let i = startPage; i <= endPage; i++) {
+        addPhotoFlagsPageButton(i);
+    }
+
+    if (endPage < state.photoFlagsTotalPages) {
+        if (endPage < state.photoFlagsTotalPages - 1) addEllipsis(els.photoFlagsPageNumbers);
+        addPhotoFlagsPageButton(state.photoFlagsTotalPages);
+    }
+}
+
+function addPhotoFlagsPageButton(pageNum) {
+    const btn = document.createElement('button');
+    btn.className = `page-btn ${pageNum === state.photoFlagsPage ? 'active' : ''}`;
+    btn.textContent = pageNum;
+    if (pageNum !== state.photoFlagsPage) {
+        btn.onclick = () => {
+            state.photoFlagsPage = pageNum;
+            fetchPhotoFlags();
+        };
+    }
+    els.photoFlagsPageNumbers.appendChild(btn);
+}
+
+function updatePhotoFlagsTabBadge(count) {
+    const tabBtn = els.tabBtnPhotoFlags;
+    if (!tabBtn) return;
+    let badge = tabBtn.querySelector('.tab-badge');
+    if (count > 0) {
+        if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'tab-badge';
+            badge.style.cssText = 'margin-left: 0.4rem; background: #3b82f6; color: white; font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 10px; font-weight: 600;';
+            tabBtn.appendChild(badge);
+        }
+        badge.textContent = count;
+    } else if (badge) {
+        badge.remove();
+    }
+}
+
+/** Lightweight fetch to get photo-flags count for the tab badge on page load. */
+async function fetchPhotoFlagsCount() {
+    try {
+        const res = await fetch('/api/photo-flags?page=1&per_page=1');
+        const data = await res.json();
+        updatePhotoFlagsTabBadge(data.total || 0);
+    } catch (err) {
+        console.log('[PhotoFlags] Could not fetch photo-flag count for tab badge');
     }
 }
 
