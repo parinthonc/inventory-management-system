@@ -3261,7 +3261,7 @@ async function fetchFlagsCount() {
 async function fetchPhotoFlags() {
     els.photoFlagsList.innerHTML = `
         <tr>
-            <td colspan="10" class="text-center py-8">
+            <td colspan="11" class="text-center py-8">
                 <div class="spinner"></div>
                 <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
             </td>
@@ -3293,7 +3293,7 @@ async function fetchPhotoFlags() {
         console.error("Error fetching photo flags:", err);
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="10" class="text-center py-8 text-error">
+                <td colspan="11" class="text-center py-8 text-error">
                     โหลดรายการไม่สำเร็จ
                 </td>
             </tr>
@@ -3305,7 +3305,7 @@ function renderPhotoFlags() {
     if (state.photoFlags.length === 0) {
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="10" class="text-center py-8 text-muted">
+                <td colspan="11" class="text-center py-8 text-muted">
                     ไม่มีรายการที่ต้องถ่ายรูป
                 </td>
             </tr>
@@ -3368,6 +3368,7 @@ function renderPhotoFlags() {
             <td style="max-width: 200px; word-break: break-word;">${noteHtml}</td>
             <td>${reporterHtml}</td>
             <td style="white-space: nowrap;">${dateStr}</td>
+            <td class="text-right"><span class="${f.photos_since_flag > 0 ? 'qty-badge' : 'text-muted'}" style="${f.photos_since_flag > 0 ? 'background: rgba(34,197,94,0.2); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : ''}">${f.photos_since_flag > 0 ? f.photos_since_flag : '-'}</span></td>
             <td class="text-right"><div class="photo-flag-actions">${uploadBtn}${resolveBtn}</div></td>
         `;
 

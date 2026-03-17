@@ -3270,6 +3270,35 @@ def get_photo_flags():
     flags = [dict(row) for row in cursor.fetchall()]
     conn.close()
 
+    # Enrich with count of photos uploaded since the flag was created
+    for f in flags:
+        count = 0
+        flagged_at_str = f.get('photo_flagged_at', '')
+        if flagged_at_str and IMAGE_DIR_CUSTOM:
+            sku = f.get('sku', '')
+            sku_folder = os.path.join(IMAGE_DIR_CUSTOM, sku)
+            if os.path.isdir(sku_folder):
+                # Parse flagged_at (format: "YYYY-MM-DD HH:MM:SS") into comparable string "YYYYMMDD_HHMMSS"
+                try:
+                    fa = flagged_at_str.replace('-', '').replace(' ', '_').replace(':', '')
+                except Exception:
+                    fa = ''
+                if fa:
+                    for fname in os.listdir(sku_folder):
+                        if fname.startswith('_') or not fname.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                            continue
+                        # Filename format: "YYYYMMDD_HHMMSS_<uuid>.jpg"
+                        # Compare the first 15 chars (YYYYMMDD_HHMMSS) against flagged_at
+                        file_ts = fname[:15]  # e.g. "20260317_093500"
+                        if len(file_ts) >= 15 and file_ts >= fa:
+                            count += 1
+        f['photos_since_flag'] = count
+
+    # If sorting by photos_since_flag, sort in Python (computed field, not in SQL)
+    if sort_by == 'photos_since_flag':
+        flags.sort(key=lambda x: x.get('photos_since_flag', 0),
+                   reverse=(sort_dir == 'desc'))
+
     total_pages = math.ceil(total_items / per_page) if per_page else 1
 
     return jsonify({
