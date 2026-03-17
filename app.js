@@ -835,7 +835,9 @@ function setupEventListeners() {
     const _pfFileInput = document.createElement('input');
     _pfFileInput.type = 'file';
     _pfFileInput.accept = 'image/jpeg,image/png,image/webp';
-    _pfFileInput.setAttribute('capture', 'environment');
+    // Only set capture on mobile — on desktop it can block the file picker
+    const _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (_isMobile) _pfFileInput.setAttribute('capture', 'environment');
     _pfFileInput.multiple = true;
     _pfFileInput.style.display = 'none';
     document.body.appendChild(_pfFileInput);
@@ -855,7 +857,9 @@ function setupEventListeners() {
         const thumb = document.createElement('div');
         thumb.className = 'upload-preview-thumb';
         const img = document.createElement('img');
-        img.src = URL.createObjectURL(file);
+        const blobUrl = URL.createObjectURL(file);
+        img.src = blobUrl;
+        img.onload = () => URL.revokeObjectURL(blobUrl); // Free memory after render
         thumb.appendChild(img);
         const name = document.createElement('span');
         name.className = 'upload-preview-name';
@@ -922,10 +926,19 @@ function setupEventListeners() {
         });
     }
 
-    // Cancel
+    // Cancel (only if not mid-upload)
     _pfCancelBtn.addEventListener('click', () => {
+        if (_pfConfirmBtn.disabled) return; // Upload in progress, ignore
         _pfHideOverlay();
         _photoFlagsUploadSku = null;
+    });
+
+    // Backdrop click to dismiss (only if not mid-upload)
+    _pfOverlay.addEventListener('click', (e) => {
+        if (e.target === _pfOverlay && !_pfConfirmBtn.disabled) {
+            _pfHideOverlay();
+            _photoFlagsUploadSku = null;
+        }
     });
 
     // Confirm upload
@@ -947,7 +960,7 @@ function setupEventListeners() {
 
             _pfProgressInner.style.width = '60%';
 
-            const res = await fetch(`/api/products/${sku}/images/upload`, {
+            const res = await fetch(`/api/products/${encodeURIComponent(sku)}/images/upload`, {
                 method: 'POST',
                 body: formData,
             });

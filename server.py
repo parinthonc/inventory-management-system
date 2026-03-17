@@ -2141,6 +2141,18 @@ def upload_product_image(sku):
     if uploaded:
         _save_custom_metadata(custom_dir, metadata)
 
+        # Update the product's thumbnail & image_count in DB so the product table reflects the new images immediately
+        try:
+            new_thumb, new_count = find_thumbnail(sku)
+            conn = get_db_connection()
+            conn.execute('UPDATE products SET thumbnail = ?, image_count = ? WHERE sku = ?',
+                         (new_thumb or '', new_count, sku))
+            conn.commit()
+            conn.close()
+            print(f"[CustomImage] Updated thumbnail for {sku}: {new_thumb} ({new_count} images)")
+        except Exception as e:
+            print(f"[CustomImage] Warning: could not update thumbnail for {sku}: {e}")
+
     print(f"[CustomImage] Upload for {sku}: {len(uploaded)} saved, {len(errors)} errors")
     return jsonify({
         'success': len(uploaded) > 0,
@@ -2289,8 +2301,29 @@ def get_hidden_product_images(sku):
         if files:
             files.sort()
             return jsonify([{'hidden_name': f, 'original_name': f[len('_hidden_'):],
-                             'preview': f'/images/{rel_folder}/{f[len("_hidden_"):]}'} for f in files])
+                             'preview': f'/api/products/{sku}/images/hidden-preview/{f}'} for f in files])
     return jsonify([])
+
+
+@app.route('/api/products/<sku>/images/hidden-preview/<filename>')
+def serve_hidden_preview(sku, filename):
+    """Serve a hidden image file for preview in the gallery.
+    Only serves files that actually have the _hidden_ prefix."""
+    if not filename.startswith('_hidden_'):
+        return 'Not found', 404
+    dirs = _resolve_image_dir(sku)
+    for abs_dir, rel_folder in dirs:
+        # Try thumbnail first for faster loading
+        original = filename[len('_hidden_'):]
+        thumb_name = f'_thumb_{original}'
+        thumb_path = os.path.join(abs_dir, thumb_name)
+        if os.path.isfile(thumb_path):
+            return send_from_directory(abs_dir, thumb_name)
+        # Fall back to the hidden file itself
+        full_path = os.path.join(abs_dir, filename)
+        if os.path.isfile(full_path):
+            return send_from_directory(abs_dir, filename)
+    return 'Not found', 404
 
 
 # --- Archived History Cache ---
