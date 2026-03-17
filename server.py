@@ -2326,6 +2326,57 @@ def serve_hidden_preview(sku, filename):
     return 'Not found', 404
 
 
+@app.route('/api/products/<sku>/images/permanent-delete', methods=['POST'])
+@admin_required
+def permanent_delete_image(sku):
+    """Permanently delete a hidden image from disk (admin only).
+    Also removes the corresponding thumbnail if it exists."""
+    data = request.get_json(force=True)
+    filename = data.get('filename', '').strip()
+    if not filename or not filename.startswith('_hidden_'):
+        return jsonify({'success': False, 'message': 'Can only permanently delete recycled images'}), 400
+
+    dirs = _resolve_image_dir(sku)
+    for abs_dir, rel_folder in dirs:
+        file_path = os.path.join(abs_dir, filename)
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+                print(f"[PermanentDelete] Deleted: {file_path}")
+
+                # Also delete the thumbnail if it exists
+                original = filename[len('_hidden_'):]
+                thumb_path = os.path.join(abs_dir, f'_thumb_{original}')
+                if os.path.isfile(thumb_path):
+                    os.remove(thumb_path)
+                    print(f"[PermanentDelete] Deleted thumb: {thumb_path}")
+
+                # Update metadata
+                metadata = _load_custom_metadata(abs_dir)
+                if original in metadata:
+                    del metadata[original]
+                    _save_custom_metadata(abs_dir, metadata)
+
+                # Update product thumbnail & image_count in DB
+                try:
+                    new_thumb, new_count = find_thumbnail(sku)
+                    conn = get_db_connection()
+                    conn.execute('UPDATE products SET thumbnail = ?, image_count = ? WHERE sku = ?',
+                                 (new_thumb or '', new_count, sku))
+                    conn.commit()
+                    conn.close()
+                except Exception as e:
+                    print(f"[PermanentDelete] Warning: could not update thumbnail: {e}")
+
+                username = session.get('user', 'unknown')
+                print(f"[PermanentDelete] {username} permanently deleted {filename} for {sku}")
+                return jsonify({'success': True, 'message': f'{original} permanently deleted'})
+            except OSError as e:
+                return jsonify({'success': False, 'message': str(e)}), 500
+
+    return jsonify({'success': False, 'message': 'File not found'}), 404
+
+
 # --- Archived History Cache ---
 archived_history_cache = None
 archived_qty_cache = {}   # (sku, sku_type) -> last running_balance from CSV

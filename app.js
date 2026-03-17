@@ -2159,7 +2159,7 @@ function _updateCaptionBar(comment, uploadedBy, uploadedAt, source) {
 
 async function hideImage(filename) {
     if (!state.currentModalSku) return;
-    if (!confirm(`ซ่อนรูปภาพ "${filename}" ?\nHide this image?`)) return;
+    if (!confirm(`ส่งรูปภาพ "${filename}" ไปถังขยะ?\nSend this image to the Recycle Bin?`)) return;
 
     try {
         const res = await fetch(`/api/products/${state.currentModalSku}/images/hide`, {
@@ -2195,8 +2195,32 @@ async function unhideImage(hiddenName) {
             alert('Error: ' + data.message);
         }
     } catch (err) {
-        console.error('Error unhiding image:', err);
+        console.error('Error restoring image:', err);
         alert('Failed to restore image');
+    }
+}
+
+async function permanentDeleteImage(hiddenName, wrapperEl) {
+    if (!state.currentModalSku) return;
+    const originalName = hiddenName.replace(/^_hidden_/, '');
+    if (!confirm(`ลบรูปภาพ "${originalName}" ถาวร?\nPermanently delete this image? This cannot be undone.`)) return;
+
+    try {
+        const res = await fetch(`/api/products/${state.currentModalSku}/images/permanent-delete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: hiddenName })
+        });
+        const data = await res.json();
+        if (data.success) {
+            // Just remove this item from the DOM — keep recycle bin open
+            if (wrapperEl) wrapperEl.remove();
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    } catch (err) {
+        console.error('Error permanently deleting image:', err);
+        alert('Failed to permanently delete image');
     }
 }
 
@@ -2429,7 +2453,7 @@ async function loadHiddenImages() {
             // Restore button
             const restoreBtn = document.createElement('button');
             restoreBtn.className = 'gallery-restore-btn';
-            restoreBtn.title = 'Restore this image';
+            restoreBtn.title = 'กู้คืนรูปภาพ / Restore';
             restoreBtn.innerHTML = '↩';
             restoreBtn.onclick = (e) => {
                 e.stopPropagation();
@@ -2438,6 +2462,21 @@ async function loadHiddenImages() {
 
             wrapper.appendChild(img);
             wrapper.appendChild(restoreBtn);
+
+            // Permanent delete button (admin only)
+            const isAdmin = _currentUser && _currentUser.role === 'admin';
+            if (isAdmin) {
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'gallery-permanent-delete-btn';
+                deleteBtn.title = 'ลบถาวร / Permanently Delete';
+                deleteBtn.innerHTML = '✕';
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    permanentDeleteImage(item.hidden_name, wrapper);
+                };
+                wrapper.appendChild(deleteBtn);
+            }
+
             els.modalThumbnails.appendChild(wrapper);
         });
     } catch (err) {
@@ -2452,16 +2491,16 @@ function insertHiddenToggle() {
 
     const toggle = document.createElement('button');
     toggle.className = 'gallery-hidden-toggle';
-    toggle.innerHTML = '👁 Show hidden';
+    toggle.innerHTML = '🗑 ถังขยะ / Recycle Bin';
     let showing = false;
 
     toggle.onclick = async () => {
         showing = !showing;
         if (showing) {
-            toggle.innerHTML = '👁 Hide hidden';
+            toggle.innerHTML = '🗑 ซ่อนถังขยะ / Hide Recycle Bin';
             await loadHiddenImages();
         } else {
-            toggle.innerHTML = '👁 Show hidden';
+            toggle.innerHTML = '🗑 ถังขยะ / Recycle Bin';
             document.querySelectorAll('.gallery-thumb-wrapper.hidden-wrapper').forEach(el => el.remove());
         }
     };
