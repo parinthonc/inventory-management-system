@@ -3757,3 +3757,314 @@ h4 {
 [data-theme="light"] .backup-toggle input:checked + .backup-toggle-slider {
     background: rgba(5, 150, 105, 0.3);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PICKUP MODE — Location-grouped checklist for warehouse item pickup
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Controls layout fix for photo flags tab ─────────────────────────────── */
+.photo-flags-controls-right {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    padding: 0.25rem 0;
+}
+
+/* Make controls section flex when it has the right controls */
+#view-photo-flags .controls-panel {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+#view-photo-flags .controls-panel .search-box {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* ── Toggle Button ───────────────────────────────────────────────────────── */
+.pickup-toggle-btn {
+    white-space: nowrap;
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    transition: all 0.25s ease;
+    font-weight: 600;
+}
+
+.pickup-toggle-btn.active {
+    background: linear-gradient(135deg, #3b82f6, #6366f1);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.35);
+}
+
+.pickup-toggle-btn.active:hover {
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+}
+
+/* ── Pickup Container ────────────────────────────────────────────────────── */
+.pickup-container {
+    animation: pickupSlideIn 0.35s ease-out;
+}
+
+@keyframes pickupSlideIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Progress Bar ────────────────────────────────────────────────────────── */
+.pickup-progress-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+    backdrop-filter: var(--glass-blur);
+}
+
+#pickup-progress-text {
+    font-weight: 700;
+    font-size: 1rem;
+    white-space: nowrap;
+    color: var(--text-primary);
+    min-width: 120px;
+}
+
+.pickup-progress-track {
+    flex: 1;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pickup-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #10b981);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+}
+
+[data-theme="light"] .pickup-progress-track {
+    background: rgba(0, 0, 0, 0.06);
+}
+
+/* ── Location Group Card ─────────────────────────────────────────────────── */
+.pickup-location-group {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+    backdrop-filter: var(--glass-blur);
+}
+
+.pickup-location-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.85rem 1.25rem;
+    background: rgba(59, 130, 246, 0.08);
+    border-bottom: 1px solid var(--border-color);
+    cursor: default;
+    user-select: none;
+}
+
+.pickup-location-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.pickup-location-code {
+    font-weight: 700;
+    font-size: 1.1rem;
+    font-family: monospace;
+    color: #60a5fa;
+    letter-spacing: 0.03em;
+}
+
+.pickup-location-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.pickup-location-check {
+    font-size: 0.8rem;
+    color: #4ade80;
+    font-weight: 600;
+}
+
+[data-theme="light"] .pickup-location-code {
+    color: #2563eb;
+}
+
+[data-theme="light"] .pickup-location-header {
+    background: rgba(37, 99, 235, 0.06);
+}
+
+/* ── Pickup Item Row ─────────────────────────────────────────────────────── */
+.pickup-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    cursor: pointer;
+    transition: background 0.15s ease, opacity 0.3s ease;
+    min-height: 48px;
+    /* Touch-friendly: min 48px tap target */
+}
+
+.pickup-item:last-child {
+    border-bottom: none;
+}
+
+.pickup-item:hover {
+    background: rgba(59, 130, 246, 0.06);
+}
+
+.pickup-item:active {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+[data-theme="light"] .pickup-item {
+    border-bottom-color: rgba(0, 0, 0, 0.04);
+}
+
+/* Checkbox */
+.pickup-checkbox {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    border: 2px solid rgba(148, 163, 184, 0.5);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.pickup-item.checked .pickup-checkbox {
+    background: #10b981;
+    border-color: #10b981;
+}
+
+.pickup-item.checked .pickup-checkbox::after {
+    content: '✓';
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.pickup-item.checked .pickup-item-info {
+    opacity: 0.4;
+    text-decoration: line-through;
+    text-decoration-color: rgba(148, 163, 184, 0.5);
+}
+
+/* Item Info */
+.pickup-item-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    transition: opacity 0.3s ease;
+}
+
+.pickup-item-code {
+    font-family: monospace;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.pickup-item-name {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Qty badge */
+.pickup-item-qty {
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.9rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ── Ghost Stock Warning ─────────────────────────────────────────────────── */
+.pickup-item.ghost-stock {
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.pickup-item.ghost-stock .pickup-item-qty {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+}
+
+.pickup-ghost-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-weight: 600;
+}
+
+/* ── Mobile Responsive ───────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .pickup-progress-bar {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+
+    #pickup-progress-text {
+        font-size: 0.9rem;
+        min-width: unset;
+    }
+
+    .pickup-progress-track {
+        order: 3;
+        width: 100%;
+    }
+
+    .pickup-item {
+        padding: 0.6rem 0.75rem;
+    }
+
+    .pickup-location-header {
+        padding: 0.75rem;
+    }
+
+    .pickup-item-name {
+        font-size: 0.75rem;
+    }
+
+    .photo-flags-controls-right {
+        width: 100%;
+    }
+
+    .pickup-toggle-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}

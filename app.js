@@ -114,6 +114,10 @@ let state = {
     photoFlagsSort: '',
     photoFlagsSortDir: '',
 
+    // Pickup Mode State
+    pickupMode: false,
+    pickupData: null,
+
     // Customer Activity State
     customerActivity: [],
     customerSearch: '',
@@ -473,6 +477,7 @@ async function init() {
     _initialized = true;
     setupEventListeners();
     _setupUploadHandlers();
+    setupPickupListeners();
     await fetchStats();
     await fetchFilters();
     await fetchProducts();
@@ -3420,7 +3425,7 @@ function renderPhotoFlags() {
             <td style="max-width: 200px; word-break: break-word;">${noteHtml}</td>
             <td>${reporterHtml}</td>
             <td style="white-space: nowrap;">${dateStr}</td>
-            <td class="text-right"><span class="${f.photos_since_flag > 0 ? 'qty-badge' : 'text-muted'}" style="${f.photos_since_flag > 0 ? 'background: rgba(34,197,94,0.2); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : ''}">${f.photos_since_flag > 0 ? f.photos_since_flag : '-'}</span></td>
+            <td class="text-right"><span class="qty-badge" style="${f.photos_since_flag > 0 ? 'background: rgba(34,197,94,0.2); color: #4ade80; border: 1px solid rgba(34,197,94,0.3);' : 'background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.3);'}">${f.photos_since_flag}</span></td>
             <td class="text-right"><div class="photo-flag-actions">${uploadBtn}${resolveBtn}</div></td>
         `;
 
@@ -3511,6 +3516,222 @@ async function fetchPhotoFlagsCount() {
     } catch (err) {
         console.log('[PhotoFlags] Could not fetch photo-flag count for tab badge');
     }
+}
+
+// ─── Pickup Mode ─────────────────────────────────────────────────────────────
+// Location-grouped checklist view for warehouse item pickup.
+// Toggled from the photo flags tab via the "📋หยิบสินค้า" button.
+
+const PICKUP_LS_KEY = 'pickupChecked';
+
+function _loadPickupChecked() {
+    try {
+        return JSON.parse(localStorage.getItem(PICKUP_LS_KEY)) || {};
+    } catch { return {}; }
+}
+
+function _savePickupChecked(checked) {
+    try { localStorage.setItem(PICKUP_LS_KEY, JSON.stringify(checked)); } catch {}
+}
+
+/** Toggle between normal table view and pickup mode. */
+async function togglePickupMode() {
+    const btn = document.getElementById('pickup-mode-toggle');
+    const container = document.getElementById('pickup-mode-container');
+    const tableSection = document.getElementById('photo-flags-table-section');
+    const paginationSection = tableSection ? tableSection.nextElementSibling : null;
+
+    state.pickupMode = !state.pickupMode;
+
+    if (state.pickupMode) {
+        btn.classList.add('active');
+        btn.innerHTML = '📋 กลับไปตาราง';
+        container.classList.remove('hidden');
+        if (tableSection) tableSection.classList.add('hidden');
+        // Hide photo flags pagination controls (next sibling of table section)
+        if (paginationSection && paginationSection.classList.contains('pagination-controls')) {
+            paginationSection.classList.add('hidden');
+        }
+        await fetchPickupData();
+    } else {
+        btn.classList.remove('active');
+        btn.innerHTML = '📋 หยิบสินค้า';
+        container.classList.add('hidden');
+        if (tableSection) tableSection.classList.remove('hidden');
+        if (paginationSection && paginationSection.classList.contains('pagination-controls')) {
+            paginationSection.classList.remove('hidden');
+        }
+    }
+}
+
+/** Fetch all photo-flagged items grouped by location. */
+async function fetchPickupData() {
+    const groupsEl = document.getElementById('pickup-groups');
+    groupsEl.innerHTML = `
+        <div style="text-align:center; padding:2rem;">
+            <div class="spinner"></div>
+            <p class="text-muted mt-4">กำลังโหลดรายการหยิบสินค้า...</p>
+        </div>
+    `;
+
+    try {
+        const res = await fetch('/api/photo-flags/pickup');
+        const data = await res.json();
+        state.pickupData = data;
+        renderPickupMode(data);
+    } catch (err) {
+        console.error('[Pickup] Error fetching pickup data:', err);
+        groupsEl.innerHTML = `<p class="text-error" style="padding:1rem;">โหลดข้อมูลไม่สำเร็จ</p>`;
+    }
+}
+
+/** Render the grouped-by-location pickup checklist. */
+function renderPickupMode(data) {
+    const groupsEl = document.getElementById('pickup-groups');
+    const checked = _loadPickupChecked();
+
+    if (!data.groups || data.groups.length === 0) {
+        groupsEl.innerHTML = `<p class="text-muted" style="padding:2rem; text-align:center;">ไม่มีรายการที่ต้องหยิบ</p>`;
+        updatePickupProgress(0, 0);
+        return;
+    }
+
+    let html = '';
+    let totalItems = 0;
+    let totalChecked = 0;
+
+    data.groups.forEach(group => {
+        const groupCheckedCount = group.items.filter(it => checked[it.sku]).length;
+        totalItems += group.count;
+        totalChecked += groupCheckedCount;
+
+        const checkLabel = groupCheckedCount === group.count
+            ? '<span class="pickup-location-check">✅ ครบแล้ว</span>'
+            : groupCheckedCount > 0
+                ? `<span class="pickup-location-check">${groupCheckedCount}/${group.count}</span>`
+                : '';
+
+        html += `<div class="pickup-location-group">`;
+        html += `<div class="pickup-location-header">`;
+        html += `  <span class="pickup-location-icon">📦</span>`;
+        html += `  <span class="pickup-location-code">${escapeHtml(group.location)}</span>`;
+        html += `  <span class="pickup-location-count">${group.count} รายการ</span>`;
+        html += `  ${checkLabel}`;
+        html += `</div>`;
+
+        group.items.forEach(item => {
+            const isChecked = checked[item.sku] ? 'checked' : '';
+            const ghostClass = item.ghost ? 'ghost-stock' : '';
+            const ghostBadge = item.ghost ? '<span class="pickup-ghost-badge">⚠️ อาจไม่มีของ</span>' : '';
+            const qtyDisplay = item.qty != null ? formatNumber(item.qty) : '-';
+
+            html += `<div class="pickup-item ${isChecked} ${ghostClass}" data-sku="${item.sku}">`;
+            html += `  <div class="pickup-checkbox"></div>`;
+            html += `  <div class="pickup-item-info">`;
+            html += `    <span class="pickup-item-code">${escapeHtml(item.part_code)}</span>`;
+            html += `    <span class="pickup-item-name">${escapeHtml(item.name_eng || '-')}</span>`;
+            html += `  </div>`;
+            html += `  ${ghostBadge}`;
+            html += `  <span class="pickup-item-qty">${qtyDisplay}</span>`;
+            html += `</div>`;
+        });
+
+        html += `</div>`;
+    });
+
+    groupsEl.innerHTML = html;
+    updatePickupProgress(totalChecked, totalItems);
+
+    // Click handler for items (delegated)
+    groupsEl.addEventListener('click', handlePickupItemClick);
+}
+
+/** Handle clicking a pickup item to toggle checked state. */
+function handlePickupItemClick(e) {
+    const itemEl = e.target.closest('.pickup-item');
+    if (!itemEl) return;
+
+    const sku = itemEl.dataset.sku;
+    const checked = _loadPickupChecked();
+    const wasChecked = !!checked[sku];
+
+    if (wasChecked) {
+        delete checked[sku];
+        itemEl.classList.remove('checked');
+    } else {
+        checked[sku] = true;
+        itemEl.classList.add('checked');
+    }
+
+    _savePickupChecked(checked);
+
+    // Update progress
+    if (state.pickupData) {
+        let total = state.pickupData.total || 0;
+        let checkedCount = Object.keys(checked).filter(k => checked[k]).length;
+        // Only count SKUs that are actually in the pickup list
+        const allSkus = new Set();
+        state.pickupData.groups.forEach(g => g.items.forEach(it => allSkus.add(it.sku)));
+        checkedCount = Object.keys(checked).filter(k => checked[k] && allSkus.has(k)).length;
+        updatePickupProgress(checkedCount, total);
+    }
+
+    // Update the header counter for this location group
+    const groupEl = itemEl.closest('.pickup-location-group');
+    if (groupEl) {
+        const items = groupEl.querySelectorAll('.pickup-item');
+        const total = items.length;
+        const groupChecked = groupEl.querySelectorAll('.pickup-item.checked').length;
+        const headerCheck = groupEl.querySelector('.pickup-location-check');
+        if (groupChecked === total) {
+            if (headerCheck) headerCheck.innerHTML = '✅ ครบแล้ว';
+            else {
+                const hdr = groupEl.querySelector('.pickup-location-header');
+                const span = document.createElement('span');
+                span.className = 'pickup-location-check';
+                span.innerHTML = '✅ ครบแล้ว';
+                hdr.appendChild(span);
+            }
+        } else if (groupChecked > 0) {
+            if (headerCheck) headerCheck.textContent = `${groupChecked}/${total}`;
+            else {
+                const hdr = groupEl.querySelector('.pickup-location-header');
+                const span = document.createElement('span');
+                span.className = 'pickup-location-check';
+                span.textContent = `${groupChecked}/${total}`;
+                hdr.appendChild(span);
+            }
+        } else if (headerCheck) {
+            headerCheck.remove();
+        }
+    }
+}
+
+/** Update the pickup progress bar and text. */
+function updatePickupProgress(checked, total) {
+    const textEl = document.getElementById('pickup-progress-text');
+    const fillEl = document.getElementById('pickup-progress-fill');
+    if (textEl) textEl.textContent = `✅ ${checked} / ${total} หยิบแล้ว`;
+    if (fillEl) {
+        const pct = total > 0 ? Math.round((checked / total) * 100) : 0;
+        fillEl.style.width = pct + '%';
+    }
+}
+
+/** Reset all pickup checkboxes. */
+function resetPickupChecked() {
+    if (!confirm('รีเซ็ตรายการที่หยิบแล้วทั้งหมด?')) return;
+    localStorage.removeItem(PICKUP_LS_KEY);
+    if (state.pickupData) renderPickupMode(state.pickupData);
+}
+
+// Wire up pickup mode event listeners (called once after DOM ready)
+function setupPickupListeners() {
+    const toggleBtn = document.getElementById('pickup-mode-toggle');
+    if (toggleBtn) toggleBtn.addEventListener('click', togglePickupMode);
+
+    const resetBtn = document.getElementById('pickup-reset-btn');
+    if (resetBtn) resetBtn.addEventListener('click', resetPickupChecked);
 }
 
 // Start app — check authentication first

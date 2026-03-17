@@ -3394,6 +3394,60 @@ def get_photo_flags():
     })
 
 
+@app.route('/api/photo-flags/pickup')
+def get_photo_flags_pickup():
+    """Return ALL photo-flagged items grouped by warehouse location for the pickup checklist.
+
+    Lightweight endpoint — returns only minimal fields needed for pickup:
+    sku, part_code, name_eng, locations, qty, thumbnail.
+    Items are grouped by location and sorted alphabetically within each group.
+    Items with qty <= 0 are flagged as potential ghost stock.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT p.sku, p.part_code, p.name_eng, p.locations, p.qty, p.thumbnail
+        FROM photo_flags pf
+        JOIN products p ON pf.sku = p.sku
+        ORDER BY p.locations ASC, p.part_code ASC
+    """)
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    # Group by location
+    from collections import OrderedDict
+    groups = OrderedDict()
+    for item in rows:
+        loc = (item.get('locations') or '').strip() or 'ไม่ระบุ'
+        if loc not in groups:
+            groups[loc] = []
+        groups[loc].append({
+            'sku': item['sku'],
+            'part_code': item['part_code'],
+            'name_eng': item.get('name_eng', ''),
+            'locations': loc,
+            'qty': item.get('qty', 0),
+            'thumbnail': item.get('thumbnail', ''),
+            'ghost': (item.get('qty') or 0) <= 0,
+        })
+
+    # Build response: list of { location, count, items }
+    result = []
+    for loc, items in groups.items():
+        # Sort: real-stock items first, ghost-stock last
+        items.sort(key=lambda x: (x['ghost'], x['part_code']))
+        result.append({
+            'location': loc,
+            'count': len(items),
+            'items': items,
+        })
+
+    return jsonify({
+        'groups': result,
+        'total': len(rows),
+    })
+
+
 # --- Titles Cache Logic ---
 TITLES_CSV_PATH = os.path.join(os.path.dirname(__file__), 'product titles', 'extracted_titles.csv')
 TITLES_CACHE_PATH = os.path.join(os.path.dirname(__file__), 'titles_cache.json')

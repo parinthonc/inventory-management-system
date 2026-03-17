@@ -688,9 +688,26 @@
                         </svg>
                         <input type="text" id="photo-flags-search-input" placeholder="ค้นหารายการที่ต้องถ่ายรูป...">
                     </div>
+                    <div class="photo-flags-controls-right">
+                        <button id="pickup-mode-toggle" class="btn btn-outline pickup-toggle-btn" title="สลับไปโหมดหยิบสินค้า">
+                            📋 หยิบสินค้า
+                        </button>
+                    </div>
                 </section>
 
-                <section class="results-panel card glass">
+                <!-- Pickup Mode Container (hidden by default) -->
+                <div id="pickup-mode-container" class="pickup-container hidden">
+                    <div class="pickup-progress-bar" id="pickup-progress">
+                        <span id="pickup-progress-text">0 / 0 หยิบแล้ว</span>
+                        <div class="pickup-progress-track">
+                            <div class="pickup-progress-fill" id="pickup-progress-fill" style="width:0%"></div>
+                        </div>
+                        <button id="pickup-reset-btn" class="btn btn-outline btn-compact" title="รีเซ็ตรายการที่หยิบแล้ว">รีเซ็ต</button>
+                    </div>
+                    <div id="pickup-groups"></div>
+                </div>
+
+                <section id="photo-flags-table-section" class="results-panel card glass">
                     <div class="table-header">
                         <h2>📷 รายการที่ต้องถ่ายรูปเพิ่ม <span id="photo-flags-results-count" class="badge">--</span></h2>
                         <div class="pagination-info">
