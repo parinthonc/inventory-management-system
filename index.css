@@ -4068,3 +4068,154 @@ h4 {
         justify-content: center;
     }
 }
+
+/* ── Pickup Flag Button ──────────────────────────────────────────────────── */
+.pickup-flag-btn {
+    background: none;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.45rem;
+    line-height: 1;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    opacity: 0.5;
+}
+
+.pickup-flag-btn:hover {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.4);
+    transform: scale(1.1);
+}
+
+/* ── Pickup Flag Popup ───────────────────────────────────────────────────── */
+.pickup-flag-popup {
+    position: fixed;
+    z-index: 9999;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+    min-width: 200px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    backdrop-filter: var(--glass-blur);
+    animation: pickupFlagPopupIn 0.15s ease-out;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+@keyframes pickupFlagPopupIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.95); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pickup-flag-popup-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 0.1rem;
+}
+
+.pickup-flag-popup-title small {
+    font-weight: 500;
+    font-family: monospace;
+    color: var(--text-secondary);
+}
+
+.pickup-flag-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    min-height: 44px;
+}
+
+.pickup-flag-option:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.pickup-flag-option.out-of-stock:hover {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.3);
+}
+
+.pickup-flag-option.less-than:hover {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+.pickup-flag-option.more-than:hover {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+/* ── Flagged Item Visual ─────────────────────────────────────────────────── */
+/* out_of_stock = red, less_than = amber, more_than = green */
+.pickup-item.pickup-flagged {
+    border-left: 3px solid #ef4444;
+}
+
+.pickup-item.pickup-flag-less_than {
+    border-left-color: #f59e0b;
+}
+
+.pickup-item.pickup-flag-more_than {
+    border-left-color: #10b981;
+}
+
+/* Badge base */
+.pickup-flagged-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    margin-top: 0.15rem;
+    font-weight: 600;
+    /* Default: red (out_of_stock) */
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.pickup-flagged-badge.less_than {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.pickup-flagged-badge.more_than {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+[data-theme="light"] .pickup-flagged-badge {
+    background: rgba(220, 38, 38, 0.08);
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.2);
+}
+
+[data-theme="light"] .pickup-flagged-badge.less_than {
+    background: rgba(245, 158, 11, 0.1);
+    color: #b45309;
+    border-color: rgba(245, 158, 11, 0.3);
+}
+
+[data-theme="light"] .pickup-flagged-badge.more_than {
+    background: rgba(16, 185, 129, 0.1);
+    color: #047857;
+    border-color: rgba(16, 185, 129, 0.3);
+}

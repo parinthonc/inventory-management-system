@@ -3406,9 +3406,11 @@ def get_photo_flags_pickup():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT p.sku, p.part_code, p.name_eng, p.locations, p.qty, p.thumbnail
+        SELECT p.sku, p.part_code, p.name_eng, p.locations, p.qty, p.thumbnail,
+               sf.flag_type as stock_flag_type
         FROM photo_flags pf
         JOIN products p ON pf.sku = p.sku
+        LEFT JOIN stock_flags sf ON p.sku = sf.sku
         ORDER BY p.locations ASC, p.part_code ASC
     """)
     rows = [dict(row) for row in cursor.fetchall()]
@@ -3429,6 +3431,7 @@ def get_photo_flags_pickup():
             'qty': item.get('qty', 0),
             'thumbnail': item.get('thumbnail', ''),
             'ghost': (item.get('qty') or 0) <= 0,
+            'stock_flag': item.get('stock_flag_type') or None,
         })
 
     # Build response: list of { location, count, items }

@@ -3624,14 +3624,19 @@ function renderPickupMode(data) {
             const ghostClass = item.ghost ? 'ghost-stock' : '';
             const ghostBadge = item.ghost ? '<span class="pickup-ghost-badge">⚠️ อาจไม่มีของ</span>' : '';
             const qtyDisplay = item.qty != null ? formatNumber(item.qty) : '-';
+            const flaggedClass = item.stock_flag ? `pickup-flagged pickup-flag-${item.stock_flag}` : '';
+            const flagLabels = { out_of_stock: '⚠ สินค้าหมด (ระบบยังแสดง)', less_than: '⚠ สินค้าจริงน้อยกว่าระบบ', more_than: 'ℹ สินค้าจริงมากกว่าระบบ' };
+            const flagBadge = item.stock_flag ? `<span class="pickup-flagged-badge ${item.stock_flag}">${flagLabels[item.stock_flag] || '🚩 แจ้งแล้ว'}</span>` : '';
 
-            html += `<div class="pickup-item ${isChecked} ${ghostClass}" data-sku="${item.sku}">`;
+            html += `<div class="pickup-item ${isChecked} ${ghostClass} ${flaggedClass}" data-sku="${item.sku}">`;
             html += `  <div class="pickup-checkbox"></div>`;
             html += `  <div class="pickup-item-info">`;
             html += `    <span class="pickup-item-code">${escapeHtml(item.part_code)}</span>`;
             html += `    <span class="pickup-item-name">${escapeHtml(item.name_eng || '-')}</span>`;
+            html += `    ${flagBadge}`;
             html += `  </div>`;
             html += `  ${ghostBadge}`;
+            html += `  <button class="pickup-flag-btn" data-sku="${item.sku}" data-part="${escapeHtml(item.part_code)}" title="แจ้งปัญหาสต็อก">🚩</button>`;
             html += `  <span class="pickup-item-qty">${qtyDisplay}</span>`;
             html += `</div>`;
         });
@@ -3648,6 +3653,14 @@ function renderPickupMode(data) {
 
 /** Handle clicking a pickup item to toggle checked state. */
 function handlePickupItemClick(e) {
+    // If the flag button was clicked, handle that instead
+    const flagBtn = e.target.closest('.pickup-flag-btn');
+    if (flagBtn) {
+        e.stopPropagation();
+        showPickupFlagPopup(flagBtn);
+        return;
+    }
+
     const itemEl = e.target.closest('.pickup-item');
     if (!itemEl) return;
 
@@ -3705,6 +3718,98 @@ function handlePickupItemClick(e) {
             headerCheck.remove();
         }
     }
+}
+
+/** Show a quick flag-type popup near the flag button. */
+function showPickupFlagPopup(btn) {
+    // Remove any existing popup
+    const existing = document.getElementById('pickup-flag-popup');
+    if (existing) existing.remove();
+
+    const sku = btn.dataset.sku;
+    const partCode = btn.dataset.part;
+
+    const popup = document.createElement('div');
+    popup.id = 'pickup-flag-popup';
+    popup.className = 'pickup-flag-popup';
+    popup.innerHTML = `
+        <div class="pickup-flag-popup-title">🚩 แจ้งปัญหาสต็อก<br><small>${partCode}</small></div>
+        <button class="pickup-flag-option out-of-stock" data-type="out_of_stock">⚠ สินค้าหมด (ระบบยังแสดง)</button>
+        <button class="pickup-flag-option less-than" data-type="less_than">⚠ สินค้าจริงน้อยกว่าระบบ</button>
+        <button class="pickup-flag-option more-than" data-type="more_than">ℹ สินค้าจริงมากกว่าระบบ</button>
+    `;
+
+    document.body.appendChild(popup);
+
+    // Position near the button
+    const rect = btn.getBoundingClientRect();
+    popup.style.top = (rect.bottom + 4) + 'px';
+    popup.style.right = (window.innerWidth - rect.right) + 'px';
+
+    // Handle option clicks
+    popup.querySelectorAll('.pickup-flag-option').forEach(opt => {
+        opt.addEventListener('click', async () => {
+            const flagType = opt.dataset.type;
+            opt.disabled = true;
+            opt.textContent = '⏳ กำลังบันทึก...';
+
+            try {
+                const res = await fetch(`/api/products/${sku}/flag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ flag_type: flagType, note: 'แจ้งจากหน้าหยิบสินค้า' })
+                });
+
+                if (res.ok) {
+                    // Mark the item visually as flagged
+                    const itemEl = document.querySelector(`.pickup-item[data-sku="${sku}"]`);
+                    if (itemEl) {
+                        itemEl.classList.add('pickup-flagged', `pickup-flag-${flagType}`);
+                        // Add a small flagged badge if not already there
+                        if (!itemEl.querySelector('.pickup-flagged-badge')) {
+                            const badge = document.createElement('span');
+                            badge.className = `pickup-flagged-badge ${flagType}`;
+                            const labels = { out_of_stock: '⚠ สินค้าหมด (ระบบยังแสดง)', less_than: '⚠ สินค้าจริงน้อยกว่าระบบ', more_than: 'ℹ สินค้าจริงมากกว่าระบบ' };
+                            badge.textContent = labels[flagType] || '🚩 แจ้งแล้ว';
+                            itemEl.querySelector('.pickup-item-info').appendChild(badge);
+                        }
+                        // Auto-check item off (since they reported it, they're done with it)
+                        if (!itemEl.classList.contains('checked')) {
+                            itemEl.classList.add('checked');
+                            const checked = _loadPickupChecked();
+                            checked[sku] = true;
+                            _savePickupChecked(checked);
+                            // Update progress
+                            if (state.pickupData) {
+                                const allSkus = new Set();
+                                state.pickupData.groups.forEach(g => g.items.forEach(it => allSkus.add(it.sku)));
+                                const checkedCount = Object.keys(checked).filter(k => checked[k] && allSkus.has(k)).length;
+                                updatePickupProgress(checkedCount, state.pickupData.total);
+                            }
+                        }
+                    }
+                    popup.remove();
+                } else {
+                    opt.textContent = '⚠️ ไม่สำเร็จ';
+                    setTimeout(() => popup.remove(), 1500);
+                }
+            } catch (err) {
+                console.error('[Pickup] Flag error:', err);
+                opt.textContent = '⚠️ ไม่สำเร็จ';
+                setTimeout(() => popup.remove(), 1500);
+            }
+        });
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', function closePopup(ev) {
+            if (!popup.contains(ev.target) && ev.target !== btn) {
+                popup.remove();
+                document.removeEventListener('click', closePopup);
+            }
+        });
+    }, 50);
 }
 
 /** Update the pickup progress bar and text. */
