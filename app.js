@@ -5343,6 +5343,40 @@ function _setupAdminHandlers() {
             e.target.checked = !enabled; // Revert toggle
         }
     });
+
+    // Cooldown settings (debounced save on change)
+    let _cooldownSaveTimer = null;
+    const saveCooldownSetting = async (key, value) => {
+        // Debounce: wait 600ms after last change before saving
+        clearTimeout(_cooldownSaveTimer);
+        _cooldownSaveTimer = setTimeout(async () => {
+            try {
+                const payload = {};
+                payload[key] = parseInt(value, 10);
+                await fetch('/api/sync/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const msg = document.getElementById('cooldown-save-msg');
+                if (msg) {
+                    msg.classList.remove('hidden');
+                    clearTimeout(msg._hideTimer);
+                    msg._hideTimer = setTimeout(() => msg.classList.add('hidden'), 2000);
+                }
+                console.log(`[Sync] Cooldown ${key} updated to ${value}`);
+            } catch (err) {
+                console.error(`[Sync] Failed to update cooldown ${key}`, err);
+            }
+        }, 600);
+    };
+
+    document.getElementById('cooldown-threshold-input').addEventListener('change', (e) => {
+        saveCooldownSetting('cooldown_threshold', e.target.value);
+    });
+    document.getElementById('cooldown-seconds-input').addEventListener('change', (e) => {
+        saveCooldownSetting('cooldown_seconds', e.target.value);
+    });
 }
 
 
@@ -5427,13 +5461,16 @@ function _showBackupStatus(message, type) {
 
 async function _loadWatcherDebugState() {
     const toggle = document.getElementById('watcher-debug-toggle');
-    if (!toggle) return;
+    const thresholdInput = document.getElementById('cooldown-threshold-input');
+    const secondsInput = document.getElementById('cooldown-seconds-input');
     try {
         const res = await fetch('/api/sync/config');
         const data = await res.json();
-        toggle.checked = !!data.watcher_debug;
+        if (toggle) toggle.checked = !!data.watcher_debug;
+        if (thresholdInput) thresholdInput.value = data.cooldown_threshold || 3;
+        if (secondsInput) secondsInput.value = data.cooldown_seconds || 120;
     } catch (err) {
-        console.error('[Sync] Failed to load watcher debug state', err);
+        console.error('[Sync] Failed to load sync settings', err);
     }
 }
 
