@@ -4009,6 +4009,25 @@ h4 {
     text-decoration-color: rgba(148, 163, 184, 0.5);
 }
 
+/* Crossed state (red ✗) */
+.pickup-item.crossed .pickup-checkbox {
+    background: #ef4444;
+    border-color: #ef4444;
+}
+
+.pickup-item.crossed .pickup-checkbox::after {
+    content: '✕';
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.pickup-item.crossed .pickup-item-info {
+    opacity: 0.4;
+    text-decoration: line-through;
+    text-decoration-color: rgba(239, 68, 68, 0.5);
+}
+
 /* Item Info */
 .pickup-item-info {
     flex: 1;
@@ -4048,6 +4067,20 @@ h4 {
 }
 
 /* ── Ghost Stock Warning ─────────────────────────────────────────────────── */
+/* ── Checked-by label ────────────────────────────────────────────────────── */
+.pickup-checked-by {
+    font-size: 0.7rem;
+    color: #4ade80;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+[data-theme="light"] .pickup-checked-by {
+    color: #16a34a;
+}
+
 .pickup-item.ghost-stock {
     background: rgba(245, 158, 11, 0.06);
 }

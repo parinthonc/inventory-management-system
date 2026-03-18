@@ -107,6 +107,32 @@ def init_photo_flags_table():
 
 init_photo_flags_table()
 
+def init_pickup_checks_table():
+    """Create pickup_checks table for shared pickup checklist state.
+    Stores which items have been checked off during pickup, visible to all users.
+    Status can be 'checked' (green ✓) or 'crossed' (red ✗)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pickup_checks (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku        TEXT NOT NULL UNIQUE,
+            checked_by TEXT DEFAULT '',
+            checked_at TEXT DEFAULT (datetime('now', 'localtime')),
+            status     TEXT DEFAULT 'checked'
+        )
+    ''')
+    # Migration: add status column if it doesn't exist yet
+    try:
+        cursor.execute("ALTER TABLE pickup_checks ADD COLUMN status TEXT DEFAULT 'checked'")
+        print('[Migration] Added status column to pickup_checks')
+    except Exception:
+        pass  # Column already exists
+    conn.commit()
+    conn.close()
+
+init_pickup_checks_table()
+
 # ─── Authentication System ────────────────────────────────────────────────────
 
 def init_auth_tables():
@@ -824,9 +850,11 @@ _restore_detection_times()
 SYNC_CONFIG_FILE = os.path.join(os.path.dirname(__file__), 'sync_config.json')
 
 def _load_sync_config():
-    """Load toggle states from disk, defaulting to all-OFF."""
+    """Load toggle states and cooldown settings from disk, defaulting to all-OFF."""
     defaults = {'master': False, 'ledger': False, 'customer': False, 'invoice': False}
     watcher_debug = False
+    cooldown_threshold = 3    # Consecutive no-change autosyncs before cooldown
+    cooldown_seconds = 120    # Cooldown duration in seconds (2 minutes)
     if os.path.isfile(SYNC_CONFIG_FILE):
         try:
             with open(SYNC_CONFIG_FILE, 'r') as f:
@@ -835,22 +863,32 @@ def _load_sync_config():
                 if key in saved:
                     defaults[key] = bool(saved[key])
             watcher_debug = bool(saved.get('watcher_debug', False))
-            print(f"[Sync] Loaded toggle config from {SYNC_CONFIG_FILE}: {defaults}, watcher_debug={watcher_debug}")
+            cooldown_threshold = int(saved.get('cooldown_threshold', 3))
+            cooldown_seconds = int(saved.get('cooldown_seconds', 120))
+            print(f"[Sync] Loaded config: toggles={defaults}, watcher_debug={watcher_debug}, "
+                  f"cooldown_threshold={cooldown_threshold}, cooldown_seconds={cooldown_seconds}")
         except Exception as e:
             print(f"[Sync] Error reading sync config, using defaults: {e}")
-    return defaults, watcher_debug
+    return defaults, watcher_debug, cooldown_threshold, cooldown_seconds
 
 def _save_sync_config():
-    """Persist current toggle states and watcher_debug to disk."""
+    """Persist current toggle states, watcher_debug, and cooldown settings to disk."""
     try:
         data = dict(_sync_enabled)
         data['watcher_debug'] = _watcher_debug
+        data['cooldown_threshold'] = _cooldown_threshold
+        data['cooldown_seconds'] = _cooldown_seconds
         with open(SYNC_CONFIG_FILE, 'w') as f:
             json.dump(data, f)
     except Exception as e:
         print(f"[Sync] Error saving sync config: {e}")
 
-_sync_enabled, _watcher_debug = _load_sync_config()
+_sync_enabled, _watcher_debug, _cooldown_threshold, _cooldown_seconds = _load_sync_config()
+
+# Phantom sync cooldown state (per-source)
+# Tracks consecutive autosyncs with zero real data changes.
+_phantom_streak = {k: 0 for k in ('master', 'ledger', 'customer', 'invoice')}
+_cooldown_until = {k: 0 for k in ('master', 'ledger', 'customer', 'invoice')}
 
 FILE_CHECK_INTERVAL = 30  # seconds between file change checks
 
@@ -1136,6 +1174,32 @@ def _run_sync_task(source_key, trigger='auto'):
                 log_parts.append(f'⚠️  {n_disappeared} DISAPPEARED')
             print(f'{_tag} Changes detected: {", ".join(log_parts)}')
 
+            # ── Phantom sync cooldown tracking ────────────────────────
+            if trigger == 'auto':
+                has_real_changes = (n_prod > 0 or n_moves > 0 or n_disappeared > 0)
+                if has_real_changes:
+                    if _phantom_streak.get(source_key, 0) > 0:
+                        print(f'{_tag} Real changes found — phantom streak reset (was {_phantom_streak[source_key]})')
+                    _phantom_streak[source_key] = 0
+                    _cooldown_until[source_key] = 0
+                else:
+                    _phantom_streak[source_key] = _phantom_streak.get(source_key, 0) + 1
+                    streak = _phantom_streak[source_key]
+                    print(f'{_tag} No real data changes — phantom streak: {streak}/{_cooldown_threshold}')
+                    if streak >= _cooldown_threshold:
+                        _cooldown_until[source_key] = time.time() + _cooldown_seconds
+                        mins = _cooldown_seconds // 60
+                        secs = _cooldown_seconds % 60
+                        cd_str = f'{mins}m {secs}s' if mins else f'{secs}s'
+                        print(f'{_tag} ⏸️  Cooldown activated for {source_key} — {cd_str} '
+                              f'(after {streak} consecutive no-change syncs)')
+            else:
+                # Manual / startup syncs always reset the streak
+                if _phantom_streak.get(source_key, 0) > 0:
+                    print(f'{_tag} {trigger} sync — phantom streak reset')
+                _phantom_streak[source_key] = 0
+                _cooldown_until[source_key] = 0
+
         _sync_state[source_key]['status'] = 'done'
         _sync_state[source_key]['progress'] = 'Sync complete'
         _sync_state[source_key]['last_sync'] = datetime.datetime.now().isoformat()
@@ -1407,6 +1471,14 @@ def _file_watcher_loop():
                         if _watcher_debug:
                             print(f"[AutoSync] Change detected in {source_key} but auto-sync is OFF — skipped")
                         continue
+                    # Phantom sync cooldown check
+                    now = time.time()
+                    if _cooldown_until.get(source_key, 0) > now:
+                        remaining = _cooldown_until[source_key] - now
+                        _sync_state[source_key]['last_mtime'] = current_mtimes  # update so we don't re-trigger immediately
+                        if _watcher_debug:
+                            print(f"[AutoSync] {source_key} in cooldown ({remaining:.0f}s remaining) — skipped")
+                        continue
                     print(f"[AutoSync] Triggering background sync for: {source_key}")
                     t = threading.Thread(target=_run_sync_task, args=(source_key,), daemon=True)
                     t.start()
@@ -1478,16 +1550,27 @@ def sync_status():
 
 @app.route('/api/sync/config', methods=['GET'])
 def get_sync_config():
-    """Return current auto-sync enabled/disabled state for each source, plus watcher_debug."""
+    """Return current auto-sync config: toggle states, watcher_debug, cooldown settings."""
     result = dict(_sync_enabled)
     result['watcher_debug'] = _watcher_debug
+    result['cooldown_threshold'] = _cooldown_threshold
+    result['cooldown_seconds'] = _cooldown_seconds
+    # Include current cooldown state for informational display
+    now = time.time()
+    result['cooldown_state'] = {
+        k: {
+            'streak': _phantom_streak.get(k, 0),
+            'in_cooldown': _cooldown_until.get(k, 0) > now,
+            'remaining_seconds': max(0, int(_cooldown_until.get(k, 0) - now)),
+        } for k in _sync_enabled
+    }
     return jsonify(result)
 
 
 @app.route('/api/sync/config', methods=['POST'])
 def set_sync_config():
-    """Update auto-sync enabled/disabled state per source, and watcher_debug."""
-    global _watcher_debug
+    """Update auto-sync enabled/disabled state per source, watcher_debug, and cooldown settings."""
+    global _watcher_debug, _cooldown_threshold, _cooldown_seconds
     data = request.get_json(force=True)
     changed = []
     for key in _sync_enabled:
@@ -1505,11 +1588,28 @@ def set_sync_config():
             _watcher_debug = new_debug
             changed.append('watcher_debug')
             print(f"[Sync] Watcher debug logging turned {'ON' if new_debug else 'OFF'}")
+    # Handle cooldown settings
+    if 'cooldown_threshold' in data:
+        new_ct = max(1, int(data['cooldown_threshold']))
+        if _cooldown_threshold != new_ct:
+            _cooldown_threshold = new_ct
+            changed.append('cooldown_threshold')
+            print(f"[Sync] Cooldown threshold set to {new_ct} consecutive no-change syncs")
+    if 'cooldown_seconds' in data:
+        new_cs = max(10, int(data['cooldown_seconds']))
+        if _cooldown_seconds != new_cs:
+            _cooldown_seconds = new_cs
+            changed.append('cooldown_seconds')
+            print(f"[Sync] Cooldown duration set to {new_cs} seconds")
     # Broadcast config change to all SSE clients
     if changed:
         _save_sync_config()
     _broadcast_sync_event('config_update', {'enabled': dict(_sync_enabled), 'watcher_debug': _watcher_debug})
-    return jsonify({'success': True, 'enabled': dict(_sync_enabled), 'watcher_debug': _watcher_debug, 'changed': changed})
+    return jsonify({
+        'success': True, 'enabled': dict(_sync_enabled), 'watcher_debug': _watcher_debug,
+        'cooldown_threshold': _cooldown_threshold, 'cooldown_seconds': _cooldown_seconds,
+        'changed': changed
+    })
 
 
 @app.route('/api/sync/trigger/<source_key>', methods=['POST'])
@@ -3402,15 +3502,19 @@ def get_photo_flags_pickup():
     sku, part_code, name_eng, locations, qty, thumbnail.
     Items are grouped by location and sorted alphabetically within each group.
     Items with qty <= 0 are flagged as potential ghost stock.
+    Includes shared checked state from pickup_checks table.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         SELECT p.sku, p.part_code, p.name_eng, p.locations, p.qty, p.thumbnail,
-               sf.flag_type as stock_flag_type
+               sf.flag_type as stock_flag_type,
+               pc.checked_by, pc.checked_at,
+               COALESCE(pc.status, '') as check_status
         FROM photo_flags pf
         JOIN products p ON pf.sku = p.sku
         LEFT JOIN stock_flags sf ON p.sku = sf.sku
+        LEFT JOIN pickup_checks pc ON p.sku = pc.sku
         ORDER BY p.locations ASC, p.part_code ASC
     """)
     rows = [dict(row) for row in cursor.fetchall()]
@@ -3419,8 +3523,12 @@ def get_photo_flags_pickup():
     # Group by location
     from collections import OrderedDict
     groups = OrderedDict()
+    total_checked = 0
     for item in rows:
         loc = (item.get('locations') or '').strip() or 'ไม่ระบุ'
+        is_checked = item.get('checked_by') is not None and item.get('checked_by') != ''
+        if is_checked:
+            total_checked += 1
         if loc not in groups:
             groups[loc] = []
         groups[loc].append({
@@ -3432,6 +3540,9 @@ def get_photo_flags_pickup():
             'thumbnail': item.get('thumbnail', ''),
             'ghost': (item.get('qty') or 0) <= 0,
             'stock_flag': item.get('stock_flag_type') or None,
+            'checked': is_checked,
+            'checked_by': item.get('checked_by') or '',
+            'status': item.get('check_status') or '',
         })
 
     # Build response: list of { location, count, items }
@@ -3448,7 +3559,64 @@ def get_photo_flags_pickup():
     return jsonify({
         'groups': result,
         'total': len(rows),
+        'total_checked': total_checked,
     })
+
+
+@app.route('/api/pickup-checks/<sku>', methods=['POST'])
+def check_pickup_item(sku):
+    """Mark a pickup item as checked or crossed (shared across all users).
+    Accepts optional JSON body: { "status": "checked" | "crossed" }"""
+    username = session.get('user', '')
+    data = request.get_json(silent=True) or {}
+    status = data.get('status', 'checked')
+    if status not in ('checked', 'crossed'):
+        status = 'checked'
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO pickup_checks (sku, checked_by, checked_at, status)
+            VALUES (?, ?, datetime('now', 'localtime'), ?)
+            ON CONFLICT(sku) DO UPDATE SET
+                checked_by = excluded.checked_by,
+                checked_at = datetime('now', 'localtime'),
+                status = excluded.status
+        ''', (sku, username, status))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'status': 'success', 'checked_by': username, 'check_status': status})
+
+
+@app.route('/api/pickup-checks/<sku>', methods=['DELETE'])
+def uncheck_pickup_item(sku):
+    """Uncheck a pickup item."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM pickup_checks WHERE sku = ?', (sku,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'status': 'success'})
+
+
+@app.route('/api/pickup-checks', methods=['DELETE'])
+@admin_required
+def reset_all_pickup_checks():
+    """Reset all pickup checks. Admin only."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM pickup_checks')
+        conn.commit()
+    finally:
+        conn.close()
+    username = session.get('user', 'unknown')
+    print(f"[Pickup] All checks reset by {username}")
+    return jsonify({'status': 'success', 'message': 'All pickup checks cleared'})
+
 
 
 # --- Titles Cache Logic ---
