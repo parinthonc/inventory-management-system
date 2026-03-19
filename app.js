@@ -272,6 +272,7 @@ const els = {
     modalSize: document.getElementById('modal-size'),
     modalQty: document.getElementById('modal-qty'),
     modalPrice: document.getElementById('modal-price'),
+    modalLocation: document.getElementById('modal-location'),
     modalHistory: document.getElementById('modal-history'),
     modalArchivedHistory: document.getElementById('modal-archived-history'),
     modalPossibleTitles: document.getElementById('modal-possible-titles'),
@@ -1958,6 +1959,7 @@ async function openModalInternal(product) {
     const displayQty = product.on_hand_qty !== undefined ? product.on_hand_qty : product.qty;
     els.modalQty.textContent = formatNumber(displayQty);
     els.modalPrice.textContent = product.sale_price ? formatPrice(product.sale_price) : '-';
+    els.modalLocation.textContent = product.locations || '-';
 
     els.modalQty.className = `value qty-value ${displayQty <= 5 ? 'qty-low' : ''}`;
 
