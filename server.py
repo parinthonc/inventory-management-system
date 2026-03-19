@@ -2104,7 +2104,7 @@ def serve_custom_image(filename):
 
 ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp'}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
-MAX_IMAGE_DIMENSION = 1200  # px
+MAX_IMAGE_DIMENSION = 0     # 0 = no resize (full quality). Set to e.g. 1200 to cap longest side.
 THUMB_MAX_DIMENSION = 300   # px - small thumbnail for product list & modal strip
 
 
@@ -2199,14 +2199,15 @@ def upload_product_image(sku):
                 if img.mode in ('RGBA', 'P', 'LA'):
                     img = img.convert('RGB')
 
-                # Resize if larger than max dimension
-                w, h = img.size
-                if max(w, h) > MAX_IMAGE_DIMENSION:
-                    ratio = MAX_IMAGE_DIMENSION / max(w, h)
-                    new_size = (int(w * ratio), int(h * ratio))
-                    img = img.resize(new_size, Image.LANCZOS)
+                # Resize if larger than max dimension (skip if MAX_IMAGE_DIMENSION is 0)
+                if MAX_IMAGE_DIMENSION > 0:
+                    w, h = img.size
+                    if max(w, h) > MAX_IMAGE_DIMENSION:
+                        ratio = MAX_IMAGE_DIMENSION / max(w, h)
+                        new_size = (int(w * ratio), int(h * ratio))
+                        img = img.resize(new_size, Image.LANCZOS)
 
-                img.save(save_path, 'JPEG', quality=85, optimize=True)
+                img.save(save_path, 'JPEG', quality=95, optimize=True)
 
                 # Generate small thumbnail for product list & modal strip
                 thumb_path = os.path.join(custom_dir, f'_thumb_{save_filename}')

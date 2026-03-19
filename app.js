@@ -841,10 +841,9 @@ function setupEventListeners() {
     const _pfFileInput = document.createElement('input');
     _pfFileInput.type = 'file';
     _pfFileInput.accept = 'image/jpeg,image/png,image/webp';
-    // Note: capture="environment" removed — it caused mobile browsers to use
-    // their built-in low-res camera instead of the native camera app.
-    // Without it, users can still choose "Camera" from the file picker.
+    // Only set capture on mobile — on desktop it can block the file picker
     const _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (_isMobile) _pfFileInput.setAttribute('capture', 'environment');
     _pfFileInput.multiple = true;
     _pfFileInput.style.display = 'none';
     document.body.appendChild(_pfFileInput);
