@@ -2183,43 +2183,53 @@ def upload_product_image(sku):
         save_path = os.path.join(custom_dir, save_filename)
 
         try:
-            # Try to resize with Pillow if available
-            try:
-                from PIL import Image, ImageOps
-                import io
-                img = Image.open(io.BytesIO(file_data))
+            if MAX_IMAGE_DIMENSION == 0:
+                # Full quality mode: save original bytes directly (no re-encoding)
+                with open(save_path, 'wb') as f:
+                    f.write(file_data)
+                print(f"[CustomImage] Saved (raw, full quality, {len(file_data)} bytes): {save_path}")
 
-                # Auto-rotate based on EXIF orientation (using Pillow's built-in)
+                # Generate small thumbnail for product list & modal strip
+                thumb_path = os.path.join(custom_dir, f'_thumb_{save_filename}')
+                _generate_thumbnail(save_path, thumb_path)
+
+            else:
+                # Resize mode: use Pillow to process the image
                 try:
-                    img = ImageOps.exif_transpose(img)
-                except Exception:
-                    pass  # No EXIF data or unsupported format, skip rotation
+                    from PIL import Image, ImageOps
+                    import io
+                    img = Image.open(io.BytesIO(file_data))
 
-                # Convert to RGB if necessary (e.g., RGBA PNGs)
-                if img.mode in ('RGBA', 'P', 'LA'):
-                    img = img.convert('RGB')
+                    # Auto-rotate based on EXIF orientation (using Pillow's built-in)
+                    try:
+                        img = ImageOps.exif_transpose(img)
+                    except Exception:
+                        pass  # No EXIF data or unsupported format, skip rotation
 
-                # Resize if larger than max dimension (skip if MAX_IMAGE_DIMENSION is 0)
-                if MAX_IMAGE_DIMENSION > 0:
+                    # Convert to RGB if necessary (e.g., RGBA PNGs)
+                    if img.mode in ('RGBA', 'P', 'LA'):
+                        img = img.convert('RGB')
+
+                    # Resize if larger than max dimension
                     w, h = img.size
                     if max(w, h) > MAX_IMAGE_DIMENSION:
                         ratio = MAX_IMAGE_DIMENSION / max(w, h)
                         new_size = (int(w * ratio), int(h * ratio))
                         img = img.resize(new_size, Image.LANCZOS)
 
-                img.save(save_path, 'JPEG', quality=95, optimize=True)
+                    img.save(save_path, 'JPEG', quality=95, optimize=True)
 
-                # Generate small thumbnail for product list & modal strip
-                thumb_path = os.path.join(custom_dir, f'_thumb_{save_filename}')
-                _generate_thumbnail(save_path, thumb_path)
-                print(f"[CustomImage] Saved (Pillow resized): {save_path}")
+                    # Generate small thumbnail for product list & modal strip
+                    thumb_path = os.path.join(custom_dir, f'_thumb_{save_filename}')
+                    _generate_thumbnail(save_path, thumb_path)
+                    print(f"[CustomImage] Saved (Pillow processed): {save_path}")
 
-            except ImportError:
-                # Pillow not available — save raw file
-                with open(save_path, 'wb') as f:
-                    f.write(file_data)
-                print(f"[CustomImage] Saved (raw, no Pillow): {save_path}")
-                # No Pillow available — can't generate thumbnail
+                except ImportError:
+                    # Pillow not available — save raw file
+                    with open(save_path, 'wb') as f:
+                        f.write(file_data)
+                    print(f"[CustomImage] Saved (raw, no Pillow): {save_path}")
+                    # No Pillow available — can't generate thumbnail
 
             # Update metadata
             metadata[save_filename] = {
