@@ -3426,6 +3426,44 @@ def _photo_flags_order(sort_by, sort_dir):
     return "pf.flagged_at DESC"
 
 
+def _refresh_photo_flag_thumbnails(items):
+    """Re-compute thumbnails from disk for a list of photo-flagged items.
+
+    For each item, calls find_thumbnail() to get the current thumbnail path.
+    If the live value differs from the DB-stored value, updates both the item
+    dict (for the current response) and the products table (so future queries
+    are also fresh).  This ensures the photo-flags tab always shows up-to-date
+    thumbnails even when images arrive via Z:\\ file sync or other external means.
+    """
+    updates = []  # (sku, new_thumb, new_count)
+    for item in items:
+        sku = item.get('sku', '')
+        if not sku:
+            continue
+        live_thumb, live_count = find_thumbnail(sku)
+        live_thumb = live_thumb or ''
+        db_thumb = item.get('thumbnail', '')
+        db_count = item.get('image_count', 0) or 0
+        if live_thumb != db_thumb or live_count != db_count:
+            item['thumbnail'] = live_thumb
+            item['image_count'] = live_count
+            updates.append((sku, live_thumb, live_count))
+
+    if updates:
+        try:
+            conn = get_db_connection()
+            for sku, thumb, count in updates:
+                conn.execute(
+                    'UPDATE products SET thumbnail = ?, image_count = ? WHERE sku = ?',
+                    (thumb, count, sku))
+            conn.commit()
+            conn.close()
+            print(f"[PhotoFlags] Refreshed thumbnails for {len(updates)} item(s): "
+                  f"{', '.join(u[0] for u in updates)}")
+        except Exception as e:
+            print(f"[PhotoFlags] Warning: could not update thumbnails in DB: {e}")
+
+
 @app.route('/api/photo-flags')
 def get_photo_flags():
     """List all products flagged as needing more photos, with pagination and search."""
@@ -3465,6 +3503,9 @@ def get_photo_flags():
     cursor.execute(query, query_params)
     flags = [dict(row) for row in cursor.fetchall()]
     conn.close()
+
+    # Actively refresh thumbnails from disk (handles Z:\ sync, external changes)
+    _refresh_photo_flag_thumbnails(flags)
 
     # Enrich with count of photos uploaded since the flag was created
     for f in flags:
@@ -3531,6 +3572,9 @@ def get_photo_flags_pickup():
     """)
     rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
+
+    # Actively refresh thumbnails from disk (handles Z:\ sync, external changes)
+    _refresh_photo_flag_thumbnails(rows)
 
     # Group by location
     from collections import OrderedDict
