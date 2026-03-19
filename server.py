@@ -1757,7 +1757,7 @@ def get_products():
         page = int(request.args.get('page', 1))
         per_page = max(1, int(request.args.get('per_page', 50)))
 
-        valid_sorts = ['part_code', 'name_eng', 'name_thai', 'brand', 'qty', 'sale_price', 'suffix', 'size', 'locations', 'last_sold_date', 'amount_sold', 'relevance']
+        valid_sorts = ['part_code', 'name_eng', 'name_thai', 'brand', 'qty', 'sale_price', 'suffix', 'size', 'locations', 'last_sold_date', 'amount_sold', 'relevance', 'last_photo_date']
         if sort_by not in valid_sorts:
             sort_by = 'last_sold_date'
         if sort_dir not in ['asc', 'desc']:
@@ -1850,6 +1850,12 @@ def get_products():
             # so items detected more recently appear first among same-date items
             if sort_by == 'last_sold_date':
                 order_clause = f" ORDER BY last_sold_date {sort_dir}, p.csv_last_sold_detected_at {sort_dir} LIMIT ? OFFSET ?"
+            elif sort_by == 'last_photo_date':
+                # NULLs / empty strings go last regardless of sort direction
+                if sort_dir == 'desc':
+                    order_clause = f" ORDER BY CASE WHEN p.last_photo_date IS NULL OR p.last_photo_date = '' THEN 1 ELSE 0 END, p.last_photo_date DESC LIMIT ? OFFSET ?"
+                else:
+                    order_clause = f" ORDER BY CASE WHEN p.last_photo_date IS NULL OR p.last_photo_date = '' THEN 1 ELSE 0 END, p.last_photo_date ASC LIMIT ? OFFSET ?"
             else:
                 order_clause = f" ORDER BY {sort_by} {sort_dir} LIMIT ? OFFSET ?"
             query_params.extend([per_page, (page - 1) * per_page])
@@ -2252,15 +2258,16 @@ def upload_product_image(sku):
     if uploaded:
         _save_custom_metadata(custom_dir, metadata)
 
-        # Update the product's thumbnail & image_count in DB so the product table reflects the new images immediately
+        # Update the product's thumbnail, image_count & last_photo_date in DB
         try:
             new_thumb, new_count = find_thumbnail(sku)
+            last_photo = _get_last_photo_date_for_dir(custom_dir)
             conn = get_db_connection()
-            conn.execute('UPDATE products SET thumbnail = ?, image_count = ? WHERE sku = ?',
-                         (new_thumb or '', new_count, sku))
+            conn.execute('UPDATE products SET thumbnail = ?, image_count = ?, last_photo_date = ? WHERE sku = ?',
+                         (new_thumb or '', new_count, last_photo, sku))
             conn.commit()
             conn.close()
-            print(f"[CustomImage] Updated thumbnail for {sku}: {new_thumb} ({new_count} images)")
+            print(f"[CustomImage] Updated thumbnail for {sku}: {new_thumb} ({new_count} images), last_photo_date={last_photo}")
         except Exception as e:
             print(f"[CustomImage] Warning: could not update thumbnail for {sku}: {e}")
 
@@ -2304,6 +2311,17 @@ def delete_custom_image(sku):
         metadata.pop(filename, None)
         _save_custom_metadata(custom_dir, metadata)
         print(f"[CustomImage] Deleted: {filepath}")
+        # Update thumbnail, image_count & last_photo_date after deletion
+        try:
+            new_thumb, new_count = find_thumbnail(sku)
+            last_photo = _get_last_photo_date_for_dir(custom_dir)
+            conn2 = get_db_connection()
+            conn2.execute('UPDATE products SET thumbnail = ?, image_count = ?, last_photo_date = ? WHERE sku = ?',
+                          (new_thumb or '', new_count, last_photo, sku))
+            conn2.commit()
+            conn2.close()
+        except Exception as e:
+            print(f"[CustomImage] Warning: could not update after delete for {sku}: {e}")
         return jsonify({'success': True, 'message': f'{filename} deleted'})
     except OSError as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -2651,6 +2669,59 @@ def _sync_csv_data_to_db():
         print(f"Synced CSV data to products table: {len(_qty_snap)} qty values, {len(_sale_snap)} sale dates.")
     except Exception as e:
         print(f"Error syncing CSV data to DB: {e}")
+
+
+def _get_last_photo_date_for_dir(custom_dir):
+    """Get the most recent image file modification time in a custom image directory.
+    Returns ISO timestamp string or empty string if no images found."""
+    if not custom_dir or not os.path.isdir(custom_dir):
+        return ''
+    latest_mtime = 0
+    for f in os.listdir(custom_dir):
+        if f.startswith('_') or not f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            continue
+        fpath = os.path.join(custom_dir, f)
+        if os.path.isfile(fpath):
+            mtime = os.path.getmtime(fpath)
+            if mtime > latest_mtime:
+                latest_mtime = mtime
+    if latest_mtime > 0:
+        return datetime.datetime.fromtimestamp(latest_mtime).strftime('%Y-%m-%d %H:%M:%S')
+    return ''
+
+
+def _update_last_photo_dates():
+    """Scan all product image directories and update last_photo_date in the DB.
+    Uses filesystem file modification times (not JSON metadata)."""
+    if not IMAGE_DIR_CUSTOM or not os.path.isdir(IMAGE_DIR_CUSTOM):
+        return
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        # Ensure column exists
+        try:
+            cursor.execute('ALTER TABLE products ADD COLUMN last_photo_date TEXT')
+        except Exception:
+            pass  # Column already exists
+
+        updated = 0
+        for sku_folder in os.listdir(IMAGE_DIR_CUSTOM):
+            folder_path = os.path.join(IMAGE_DIR_CUSTOM, sku_folder)
+            if not os.path.isdir(folder_path):
+                continue
+            last_photo = _get_last_photo_date_for_dir(folder_path)
+            if last_photo:
+                # sku_folder is "part_code_suffix" which matches the sku column
+                cursor.execute('UPDATE products SET last_photo_date = ? WHERE sku = ?',
+                               (last_photo, sku_folder))
+                if cursor.rowcount > 0:
+                    updated += 1
+
+        conn.commit()
+        conn.close()
+        print(f"[PhotoDate] Updated last_photo_date for {updated} product(s)")
+    except Exception as e:
+        print(f"[PhotoDate] Error updating last_photo_dates: {e}")
 
 @app.route('/api/products/<sku>/archived-history')
 def get_archived_history(sku):
@@ -3797,6 +3868,8 @@ if __name__ == '__main__':
     print("Starting Inventory Management Server...")
     # Eagerly load CSV cache and sync to DB at startup
     load_archived_history_cache()
+    # Scan image directories to populate last_photo_date column
+    _update_last_photo_dates()
     # Start background file watcher for auto-sync from Z:\ server
     start_file_watcher()
     # Start auto-backup scheduler
