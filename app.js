@@ -2286,7 +2286,9 @@ let _pendingUploadFiles = [];  // Array of File objects (accumulates across mult
 
 function _setupUploadHandlers() {
     const uploadBtn = document.getElementById('btn-upload-photo');
+    const takePhotoBtn = document.getElementById('btn-take-photo');
     const fileInput = document.getElementById('custom-image-input');
+    const cameraInput = document.getElementById('camera-image-input');
     const cancelBtn = document.getElementById('btn-cancel-upload');
     const confirmBtn = document.getElementById('btn-confirm-upload');
     const addMoreBtn = document.getElementById('btn-add-more-photos');
@@ -2343,14 +2345,8 @@ function _setupUploadHandlers() {
         }
     }
 
-    // Upload button → trigger file input (fresh upload)
-    uploadBtn.addEventListener('click', () => {
-        _isAddingMore = false;
-        fileInput.click();
-    });
-
-    // File input change → show preview or append
-    fileInput.addEventListener('change', (e) => {
+    // Common handler for file input changes (shared by camera and gallery inputs)
+    function _handleFileInputChange(e) {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
@@ -2370,8 +2366,26 @@ function _setupUploadHandlers() {
         _updateUploadLabel();
         uploadDialog.classList.remove('hidden');
         _isAddingMore = false;
-        fileInput.value = '';  // Reset so same file can be selected again
+        e.target.value = '';  // Reset so same file can be selected again
+    }
+
+    // "เลือกรูป" (Gallery) button → trigger file input without capture (opens file picker / gallery)
+    uploadBtn.addEventListener('click', () => {
+        _isAddingMore = false;
+        fileInput.click();
     });
+
+    // "ถ่ายรูป" (Camera) button → trigger camera input with capture="environment" (opens camera on mobile)
+    if (takePhotoBtn && cameraInput) {
+        takePhotoBtn.addEventListener('click', () => {
+            _isAddingMore = false;
+            cameraInput.click();
+        });
+        cameraInput.addEventListener('change', _handleFileInputChange);
+    }
+
+    // File input change → show preview or append
+    fileInput.addEventListener('change', _handleFileInputChange);
 
     // "เพิ่มรูป / Add More" button → re-open file input to add more photos
     if (addMoreBtn) {
