@@ -391,10 +391,10 @@ def admin_create_user():
 @app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
 @admin_required
 def admin_delete_user(user_id):
-    """Delete a user account."""
+    """Delete a user account. Prevents deleting the sole admin."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT username FROM users WHERE id = ?', (user_id,))
+    cursor.execute('SELECT username, role FROM users WHERE id = ?', (user_id,))
     user = cursor.fetchone()
     if not user:
         conn.close()
@@ -402,6 +402,13 @@ def admin_delete_user(user_id):
     if user['username'] == session['user']:
         conn.close()
         return jsonify({'error': 'Cannot delete your own account'}), 400
+    # Prevent deleting the sole admin — would lock out admin access entirely
+    if user['role'] == 'admin':
+        cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'")
+        admin_count = cursor.fetchone()['cnt']
+        if admin_count <= 1:
+            conn.close()
+            return jsonify({'error': 'Cannot delete the sole admin account. Create another admin first.'}), 400
     cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
     conn.commit()
     conn.close()

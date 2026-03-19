@@ -5603,7 +5603,14 @@ async function _loadAdminUsers() {
             tbody.innerHTML = '<tr><td colspan="4" class="text-center">Error loading users</td></tr>';
             return;
         }
-        tbody.innerHTML = users.map(u => `
+        // Count admins to determine if sole admin protection should apply
+        const adminCount = users.filter(u => u.role === 'admin').length;
+        tbody.innerHTML = users.map(u => {
+            const isSoleAdmin = u.role === 'admin' && adminCount <= 1;
+            const deleteDisabled = isSoleAdmin
+                ? 'disabled title="Cannot delete the sole admin account" style="border-color: rgba(100,100,100,0.3); color: #666; cursor: not-allowed; opacity: 0.5;"'
+                : `onclick="_adminDeleteUser(${u.id}, '${escapeHtml(u.username)}')" title="Delete user" style="border-color: rgba(239,68,68,0.4); color: #fca5a5;"`;
+            return `
             <tr>
                 <td><strong>${escapeHtml(u.username)}</strong></td>
                 <td><span class="badge">${escapeHtml(u.role)}</span></td>
@@ -5612,12 +5619,12 @@ async function _loadAdminUsers() {
                     <button class="btn btn-outline btn-compact" onclick="_adminResetPassword(${u.id}, '${escapeHtml(u.username)}')" title="Reset password" style="margin-right:0.25rem;">
                         Reset PW
                     </button>
-                    <button class="btn btn-outline btn-compact" onclick="_adminDeleteUser(${u.id}, '${escapeHtml(u.username)}')" title="Delete user" style="border-color: rgba(239,68,68,0.4); color: #fca5a5;">
+                    <button class="btn btn-outline btn-compact" ${deleteDisabled}>
                         Delete
                     </button>
                 </td>
             </tr>
-        `).join('');
+        `}).join('');
     } catch (err) {
         tbody.innerHTML = '<tr><td colspan="4" class="text-center">Failed to load users</td></tr>';
     }
