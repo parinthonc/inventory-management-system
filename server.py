@@ -3508,7 +3508,7 @@ def get_photo_flags_pickup():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT p.sku, p.part_code, p.name_eng, p.suffix, p.locations, p.qty, p.thumbnail,
+        SELECT p.sku, p.part_code, p.name_eng, p.name_thai, p.suffix, p.locations, p.qty, p.thumbnail,
                sf.flag_type as stock_flag_type,
                pc.checked_by, pc.checked_at,
                COALESCE(pc.status, '') as check_status
@@ -3536,6 +3536,7 @@ def get_photo_flags_pickup():
             'sku': item['sku'],
             'part_code': item['part_code'],
             'name_eng': item.get('name_eng', ''),
+            'name_thai': item.get('name_thai', ''),
             'suffix': item.get('suffix', ''),
             'locations': loc,
             'qty': item.get('qty', 0),

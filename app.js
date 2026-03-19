@@ -841,9 +841,10 @@ function setupEventListeners() {
     const _pfFileInput = document.createElement('input');
     _pfFileInput.type = 'file';
     _pfFileInput.accept = 'image/jpeg,image/png,image/webp';
-    // Only set capture on mobile — on desktop it can block the file picker
+    // Note: capture="environment" removed — it caused mobile browsers to use
+    // their built-in low-res camera instead of the native camera app.
+    // Without it, users can still choose "Camera" from the file picker.
     const _isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (_isMobile) _pfFileInput.setAttribute('capture', 'environment');
     _pfFileInput.multiple = true;
     _pfFileInput.style.display = 'none';
     document.body.appendChild(_pfFileInput);
@@ -3658,10 +3659,9 @@ function renderPickupMode(data) {
             html += `<div class="pickup-item ${isChecked} ${isCrossed} ${ghostClass} ${flaggedClass}" data-sku="${item.sku}">`;
             html += `  <div class="pickup-checkbox"></div>`;
             html += `  <div class="pickup-item-info">`;
-            html += `    <span class="pickup-item-code">${escapeHtml(item.part_code)}</span>`;
             const typeBadge = item.suffix ? `<span class="pickup-type-badge type-${(item.suffix || '').toLowerCase()}">${escapeHtml(item.suffix)}</span>` : '';
-            html += `    ${typeBadge}`;
-            html += `    <span class="pickup-item-name">${escapeHtml(item.name_eng || '-')}</span>`;
+            html += `    <div class="pickup-item-code-row"><span class="pickup-item-code">${escapeHtml(item.part_code)}</span>${typeBadge}</div>`;
+            html += `    <span class="pickup-item-name">${escapeHtml(item.name_thai || item.name_eng || '-')}</span>`;
             html += `    ${flagBadge}`;
             html += `  </div>`;
             html += `  ${ghostBadge}`;
