@@ -3354,7 +3354,7 @@ async function fetchFlagsCount() {
 async function fetchPhotoFlags() {
     els.photoFlagsList.innerHTML = `
         <tr>
-            <td colspan="11" class="text-center py-8">
+            <td colspan="12" class="text-center py-8">
                 <div class="spinner"></div>
                 <p class="text-muted mt-4">กำลังโหลดรายการที่ต้องถ่ายรูป...</p>
             </td>
@@ -3386,7 +3386,7 @@ async function fetchPhotoFlags() {
         console.error("Error fetching photo flags:", err);
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="11" class="text-center py-8 text-error">
+                <td colspan="12" class="text-center py-8 text-error">
                     โหลดรายการไม่สำเร็จ
                 </td>
             </tr>
@@ -3449,6 +3449,7 @@ function renderPhotoFlags() {
         tr.innerHTML = `
             <td><div class="thumb-cell">${thumbContent}</div></td>
             <td><div style="font-family: monospace; font-size: 1.05rem;">${escapeHtml(f.part_code)}</div></td>
+            <td>${f.suffix ? `<span class="brand-badge">${escapeHtml(f.suffix)}</span>` : '<span class="text-muted">-</span>'}</td>
             <td>
                 <div class="desc-cell">
                     <div class="desc-eng">${escapeHtml(f.name_eng || '-')}</div>
@@ -3658,6 +3659,8 @@ function renderPickupMode(data) {
             html += `  <div class="pickup-checkbox"></div>`;
             html += `  <div class="pickup-item-info">`;
             html += `    <span class="pickup-item-code">${escapeHtml(item.part_code)}</span>`;
+            const typeBadge = item.suffix ? `<span class="pickup-type-badge type-${(item.suffix || '').toLowerCase()}">${escapeHtml(item.suffix)}</span>` : '';
+            html += `    ${typeBadge}`;
             html += `    <span class="pickup-item-name">${escapeHtml(item.name_eng || '-')}</span>`;
             html += `    ${flagBadge}`;
             html += `  </div>`;
