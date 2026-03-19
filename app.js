@@ -5207,6 +5207,44 @@ function _showUserUI() {
             location.reload();
         });
     }
+
+    // ── Admin-only: Refresh buttons & Auto-Sync controls ──────────────────
+    const isAdmin = _currentUser.role === 'admin';
+
+    // Disable/enable the 4 refresh buttons in the navbar
+    const refreshBtnIds = ['refresh-invoice-btn', 'refresh-customer-btn', 'refresh-master-btn', 'refresh-ledger-btn'];
+    refreshBtnIds.forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            btn.disabled = !isAdmin;
+            btn.classList.toggle('admin-only-disabled', !isAdmin);
+            if (!isAdmin) btn.title = 'Admin only';
+        }
+    });
+
+    // Disable/enable the 4 auto-sync toggles
+    const syncToggleIds = ['sync-toggle-master', 'sync-toggle-ledger', 'sync-toggle-customer', 'sync-toggle-invoice'];
+    syncToggleIds.forEach(id => {
+        const toggle = document.getElementById(id);
+        if (toggle) {
+            toggle.disabled = !isAdmin;
+            const label = toggle.closest('.sync-toggle');
+            if (label) label.classList.toggle('admin-only-disabled', !isAdmin);
+        }
+    });
+
+    // Disable/enable click-to-sync dots & labels in the sync status bar
+    document.querySelectorAll('.sync-item-dot, .sync-item-label').forEach(el => {
+        if (!isAdmin) {
+            el.style.pointerEvents = 'none';
+            el.style.cursor = 'default';
+            el.title = 'Admin only';
+        } else {
+            el.style.pointerEvents = '';
+            el.style.cursor = 'pointer';
+        }
+    });
+
     _userUIBound = true;
 }
 

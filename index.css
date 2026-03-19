@@ -4292,3 +4292,26 @@ h4 {
     color: #047857;
     border-color: rgba(16, 185, 129, 0.3);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADMIN-ONLY DISABLED STATE — Refresh buttons & Auto-Sync controls
+   Visible to all users but only clickable by admin.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.admin-only-disabled {
+    opacity: 0.4;
+    pointer-events: none;
+    cursor: not-allowed !important;
+    user-select: none;
+}
+
+button.admin-only-disabled {
+    cursor: not-allowed !important;
+    pointer-events: auto;  /* keep hover tooltip ("Admin only") visible */
+}
+
+button.admin-only-disabled:hover {
+    opacity: 0.4;
+    transform: none;
+    box-shadow: none;
+}
