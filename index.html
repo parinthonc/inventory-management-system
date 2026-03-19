@@ -79,7 +79,7 @@
             </div>
 
             <!-- User List -->
-            <div class="table-responsive">
+            <div class="table-responsive" style="min-height: 200px; max-height: 300px; overflow-y: auto; margin-bottom: 1.5rem;">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -666,6 +666,8 @@
                                     <th class="sortable" data-sort="brand">Brand <span class="sort-arrow"></span></th>
                                     <th class="sortable text-right" data-sort="system_qty">Qty (System) <span
                                             class="sort-arrow"></span></th>
+                                    <th class="sortable text-right" data-sort="recount_qty">Counted <span
+                                            class="sort-arrow"></span></th>
                                     <th class="sortable" data-sort="flag_type">Issue Type / Note <span
                                             class="sort-arrow"></span></th>
                                     <th class="sortable" data-sort="flagged_at">Date Flagged <span
@@ -675,7 +677,7 @@
                             </thead>
                             <tbody id="flags-list">
                                 <tr>
-                                    <td colspan="8" class="text-center py-8">
+                                    <td colspan="9" class="text-center py-8">
                                         <div class="spinner"></div>
                                         <p class="text-muted mt-4">Loading flagged items...</p>
                                     </td>
@@ -1204,6 +1206,17 @@
                                 <span class="label">Location</span>
                                 <span class="value" id="modal-location">--</span>
                             </div>
+                            <div class="detail-item" id="modal-recount-row" style="display: none;">
+                                <span class="label">นับล่าสุด</span>
+                                <span class="value" id="modal-recount-info">--</span>
+                            </div>
+                            <div id="modal-recount-history-section" class="hidden" style="grid-column: 1 / -1; margin-top: 0.5rem; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); padding: 0.75rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary);">📋 ประวัตินับสต็อก</span>
+                                    <button id="btn-close-recount-history" class="btn" style="padding: 0.1rem 0.4rem; font-size: 0.75rem; background: transparent; color: var(--text-secondary); border: none; cursor: pointer;">✕</button>
+                                </div>
+                                <div id="modal-recount-history-list" style="max-height: 200px; overflow-y: auto;"></div>
+                            </div>
                         </div>
 
                         <!-- Sales by Year Summary (compact, right after specs) -->
@@ -1232,13 +1245,18 @@
                             style="margin-top: 0.3rem; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 0.3rem;">
                             <div class="modal-action-buttons" style="display: flex; gap: 0.5rem;">
                                 <button id="btn-report-issue" class="btn btn-outline"
-                                    style="flex: 1; border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; font-size: 0.85rem;">
+                                    style="flex: 1; border-color: rgba(99, 102, 241, 0.5); color: #a5b4fc; font-size: 0.85rem;">
                                     <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2"
                                         fill="none" style="margin-right:0.3rem">
                                         <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
                                         <line x1="4" y1="22" x2="4" y2="15"></line>
                                     </svg>
-                                    รายงานจำนวนของไม่ตรง
+                                    🔢 นับสต็อกจริง
+                                </button>
+                                <button id="btn-recount-history" class="btn btn-outline hidden"
+                                    style="flex: 0 0 auto; border-color: rgba(156, 163, 175, 0.4); color: #9ca3af; font-size: 0.85rem; padding: 0.4rem 0.75rem;"
+                                    title="ประวัตินับสต็อก">
+                                    📋 ประวัติ
                                 </button>
                                 <button id="btn-photo-flag" class="btn btn-outline"
                                     style="flex: 1; border-color: rgba(59, 130, 246, 0.5); color: #60a5fa; font-size: 0.85rem;">
@@ -1248,61 +1266,33 @@
 
                             <div id="report-dialog" class="hidden"
                                 style="margin-top: 1rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: var(--radius-md);">
-                                <h4 style="margin-bottom: 1rem; color: var(--text-primary); font-size: 0.95rem;">Select
-                                    Issue Type</h4>
+                                <h4 style="margin-bottom: 0.75rem; color: var(--text-primary); font-size: 0.95rem;">🔢 นับสต็อกจริง</h4>
 
-                                <div class="radio-group"
-                                    style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem;">
-                                    <label
-                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                                        <input type="radio" name="flag_type" value="out_of_stock"
-                                            style="margin-top:0.25rem;">
-                                        <div>
-                                            <span style="display: block; font-weight: 500;">สินค้าหมด
-                                                (ระบบยังแสดง)</span>
-                                            <span style="font-size: 0.8em; color: var(--text-secondary);">System shows
-                                                stock, but real stock is empty</span>
-                                        </div>
-                                    </label>
-                                    <label
-                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                                        <input type="radio" name="flag_type" value="less_than"
-                                            style="margin-top:0.25rem;">
-                                        <div>
-                                            <span
-                                                style="display: block; font-weight: 500;">สินค้าจริงน้อยกว่าระบบ</span>
-                                            <span style="font-size: 0.8em; color: var(--text-secondary);">Real stock is
-                                                less
-                                                than system shows</span>
-                                        </div>
-                                    </label>
-                                    <label
-                                        style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                                        <input type="radio" name="flag_type" value="more_than"
-                                            style="margin-top:0.25rem;">
-                                        <div>
-                                            <span style="display: block; font-weight: 500;">สินค้าจริงมากกว่าระบบ</span>
-                                            <span style="font-size: 0.8em; color: var(--text-secondary);">Real stock is
-                                                more
-                                                than system shows</span>
-                                        </div>
-                                    </label>
+                                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; padding: 0.75rem; background: rgba(255,255,255,0.05); border-radius: var(--radius-sm);">
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">จำนวนในระบบ</div>
+                                        <div id="recount-system-qty" style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary); font-family: monospace;">--</div>
+                                    </div>
+                                    <div style="color: var(--text-secondary); font-size: 1.2rem;">→</div>
+                                    <div style="flex: 1;">
+                                        <div style="font-size: 0.75rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">นับได้จริง</div>
+                                        <input type="number" id="recount-qty-input" min="0" step="1" placeholder="0"
+                                            style="width: 100%; font-size: 1.5rem; font-weight: 700; font-family: monospace; padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); border-radius: var(--radius-sm); color: var(--text-primary); outline: none;">
+                                    </div>
                                 </div>
 
-                                <div style="margin-bottom: 1rem;">
+                                <div style="margin-bottom: 0.75rem;">
                                     <label for="report-note"
-                                        style="display: block; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);">Optional
-                                        Note:</label>
+                                        style="display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--text-secondary);">หมายเหตุ (ไม่บังคับ)</label>
                                     <textarea id="report-note" rows="2" class="select-css"
-                                        style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2);"></textarea>
+                                        style="width: 100%; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2);" placeholder="เช่น นับเฉพาะชั้นบน"></textarea>
                                 </div>
 
                                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
                                     <button id="btn-cancel-report" class="btn btn-outline"
-                                        style="padding: 0.5rem 1rem;">Cancel</button>
+                                        style="padding: 0.5rem 1rem;">ยกเลิก</button>
                                     <button id="btn-submit-report" class="btn btn-primary"
-                                        style="padding: 0.5rem 1rem; background: #ef4444; border:none; color:white;">Submit
-                                        Flag</button>
+                                        style="padding: 0.5rem 1rem; background: #6366f1; border:none; color:white;">✓ บันทึกผลนับ</button>
                                 </div>
                             </div>
 

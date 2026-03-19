@@ -277,13 +277,20 @@ const els = {
     modalArchivedHistory: document.getElementById('modal-archived-history'),
     modalPossibleTitles: document.getElementById('modal-possible-titles'),
 
-    // Modal Flagging Elements
+    // Modal Recount Elements
     btnReportIssue: document.getElementById('btn-report-issue'),
     reportDialog: document.getElementById('report-dialog'),
     btnCancelReport: document.getElementById('btn-cancel-report'),
     btnSubmitReport: document.getElementById('btn-submit-report'),
     reportNote: document.getElementById('report-note'),
-    flagTypeRadios: document.getElementsByName('flag_type'),
+    recountQtyInput: document.getElementById('recount-qty-input'),
+    recountSystemQty: document.getElementById('recount-system-qty'),
+    modalRecountRow: document.getElementById('modal-recount-row'),
+    modalRecountInfo: document.getElementById('modal-recount-info'),
+    modalRecountHistorySection: document.getElementById('modal-recount-history-section'),
+    modalRecountHistoryList: document.getElementById('modal-recount-history-list'),
+    btnRecountHistory: document.getElementById('btn-recount-history'),
+    btnCloseRecountHistory: document.getElementById('btn-close-recount-history'),
 
     // Modal Photo Flag Elements
     btnPhotoFlag: document.getElementById('btn-photo-flag'),
@@ -1168,10 +1175,17 @@ function setupEventListeners() {
         });
     }
 
-    // Handle Report Dialog Open/Close
+    // Handle Recount Dialog Open/Close
     els.btnReportIssue.addEventListener('click', () => {
         els.btnReportIssue.classList.add('hidden');
         els.reportDialog.classList.remove('hidden');
+        // Pre-populate system qty and focus the input
+        const systemQty = els.modalQty.textContent.replace(/,/g, '') || '0';
+        els.recountSystemQty.textContent = systemQty;
+        if (els.recountQtyInput) {
+            els.recountQtyInput.value = '';
+            setTimeout(() => els.recountQtyInput.focus(), 100);
+        }
     });
 
     els.btnCancelReport.addEventListener('click', () => {
@@ -1179,10 +1193,24 @@ function setupEventListeners() {
         els.reportDialog.classList.add('hidden');
         // Reset form
         els.reportNote.value = '';
-        els.flagTypeRadios.forEach(r => r.checked = false);
+        if (els.recountQtyInput) els.recountQtyInput.value = '';
     });
 
-    els.btnSubmitReport.addEventListener('click', submitFlag);
+    els.btnSubmitReport.addEventListener('click', submitRecount);
+
+    // Handle Recount History Button
+    if (els.btnRecountHistory) {
+        els.btnRecountHistory.addEventListener('click', () => {
+            const section = els.modalRecountHistorySection;
+            if (section) section.classList.toggle('hidden');
+        });
+    }
+    if (els.btnCloseRecountHistory) {
+        els.btnCloseRecountHistory.addEventListener('click', () => {
+            const section = els.modalRecountHistorySection;
+            if (section) section.classList.add('hidden');
+        });
+    }
 
     // Handle Photo Flag Dialog Open/Close
     if (els.btnPhotoFlag) {
@@ -1925,13 +1953,24 @@ async function openModalInternal(product) {
             'more_than': 'ℹ️ สินค้าจริงมากกว่าระบบ'
         };
         const flagNote = product.flag_note ? `<div class="modal-flag-banner-note">${escapeHtml(product.flag_note)}</div>` : '';
-        const flagDate = product.flagged_at ? `<div class="modal-flag-banner-date">Flagged: ${formatBuddhistDate(product.flagged_at, true)}</div>` : '';
+        const flagDate = product.flagged_at ? `<div class="modal-flag-banner-date">นับเมื่อ: ${formatBuddhistDate(product.flagged_at, true)}</div>` : '';
+
+        // Build recount delta info if available
+        let recountHtml = '';
+        if (product.recount_qty !== null && product.recount_qty !== undefined) {
+            const sysQ = product.on_hand_qty !== undefined ? product.on_hand_qty : (product.qty || 0);
+            const delta = product.recount_qty - sysQ;
+            const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+            recountHtml = `<div class="modal-flag-banner-recount" style="font-size: 0.9em; margin-top: 2px; opacity: 0.9;">🔢 นับได้ <strong>${formatNumber(product.recount_qty)}</strong> / ระบบ ${formatNumber(sysQ)} (ต่างกัน ${deltaStr})</div>`;
+        }
+
         const banner = document.createElement('div');
         banner.className = `modal-flag-banner ${product.flag_type}`;
         banner.innerHTML = `
-            <div class="modal-flag-banner-icon">🚩</div>
+            <div class="modal-flag-banner-icon">🔢</div>
             <div class="modal-flag-banner-text">
                 <div class="modal-flag-banner-label">${flagLabels[product.flag_type] || product.flag_type}</div>
+                ${recountHtml}
                 ${flagNote}
                 ${flagDate}
             </div>
@@ -1963,12 +2002,28 @@ async function openModalInternal(product) {
 
     els.modalQty.className = `value qty-value ${displayQty <= 5 ? 'qty-low' : ''}`;
 
-    // Manage Report button state
+    // Manage Recount button state
     state.currentModalSku = product.sku;
     els.btnReportIssue.classList.remove('hidden');
     els.reportDialog.classList.add('hidden');
     els.reportNote.value = '';
-    els.flagTypeRadios.forEach(r => r.checked = false);
+    if (els.recountQtyInput) els.recountQtyInput.value = '';
+
+    // Show recount info row in detail grid if product has been counted
+    if (els.modalRecountRow && els.modalRecountInfo) {
+        if (product.recount_qty !== null && product.recount_qty !== undefined) {
+            const dateStr = product.flagged_at ? formatBuddhistDate(product.flagged_at, true) : '-';
+            els.modalRecountInfo.innerHTML = `<span style="font-weight:600;">${formatNumber(product.recount_qty)}</span> <span style="color: var(--text-secondary); font-size: 0.85em;">(${dateStr})</span>`;
+            els.modalRecountRow.style.display = '';
+        } else {
+            els.modalRecountRow.style.display = 'none';
+        }
+    }
+
+    // Fetch recount history for this product
+    fetchRecountHistory(product.sku);
+    // Hide the history panel initially
+    if (els.modalRecountHistorySection) els.modalRecountHistorySection.classList.add('hidden');
 
     // ── Photo flag UI state in modal ────────────────────────────────
     if (els.photoFlagDialog) els.photoFlagDialog.classList.add('hidden');
@@ -3110,16 +3165,18 @@ async function fetchAndRenderArchivedHistory(sku) {
 
 // ─── Flags Specific Code ──────────────────────────────────────────────────
 
-async function submitFlag() {
+async function submitRecount() {
     if (!state.currentModalSku) return;
 
-    let selectedType = null;
-    els.flagTypeRadios.forEach(r => {
-        if (r.checked) selectedType = r.value;
-    });
+    const recountInput = els.recountQtyInput;
+    if (!recountInput || recountInput.value === '') {
+        alert('กรุณาใส่จำนวนที่นับได้จริง');
+        return;
+    }
 
-    if (!selectedType) {
-        alert("Please select an issue type.");
+    const recountQty = parseInt(recountInput.value, 10);
+    if (isNaN(recountQty) || recountQty < 0) {
+        alert('กรุณาใส่จำนวนที่ถูกต้อง (ตัวเลข 0 ขึ้นไป)');
         return;
     }
 
@@ -3127,38 +3184,126 @@ async function submitFlag() {
 
     try {
         els.btnSubmitReport.disabled = true;
-        els.btnSubmitReport.textContent = "Submitting...";
+        els.btnSubmitReport.textContent = '⏳ กำลังบันทึก...';
 
         const res = await fetch(`/api/products/${state.currentModalSku}/flag`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ flag_type: selectedType, note: note })
+            body: JSON.stringify({ recount_qty: recountQty, note: note })
         });
 
+        const data = await res.json();
+
         if (res.ok) {
-            alert("Stock mismatch reported successfully.");
+            if (data.match) {
+                alert('✅ สต็อกตรงกับระบบ — ลบแจ้งปัญหาเดิมแล้ว');
+            } else {
+                alert(`✅ บันทึกผลนับเรียบร้อย (${data.flag_type === 'out_of_stock' ? 'สินค้าหมด' : data.flag_type === 'less_than' ? 'น้อยกว่าระบบ' : 'มากกว่าระบบ'})`);
+            }
             els.btnCancelReport.click(); // close the dialog
 
             // Re-fetch products to update the indicators, and flags table if needed
             fetchProducts();
             if (state.flags.length > 0) fetchFlags();
         } else {
-            const data = await res.json();
             alert(`Error: ${data.error || 'Failed to submit'}`);
         }
     } catch (err) {
         console.error(err);
-        alert("An error occurred while submitting.");
+        alert('เกิดข้อผิดพลาดขณะบันทึก');
     } finally {
         els.btnSubmitReport.disabled = false;
-        els.btnSubmitReport.textContent = "Submit Flag";
+        els.btnSubmitReport.textContent = '✓ บันทึกผลนับ';
+    }
+}
+
+async function fetchRecountHistory(sku) {
+    const section = els.modalRecountHistorySection;
+    const list = els.modalRecountHistoryList;
+    if (!section || !list) return;
+
+    try {
+        const res = await fetch(`/api/products/${sku}/recount-history`);
+        const data = await res.json();
+        if (data.history && data.history.length > 0) {
+            const isAdmin = _currentUser && _currentUser.role === 'admin';
+            const flagLabels = {
+                'out_of_stock': 'หมด',
+                'less_than': 'น้อยกว่า',
+                'more_than': 'มากกว่า',
+                'match': 'ตรงกัน'
+            };
+            list.innerHTML = data.history.map(h => {
+                const dateStr = h.recounted_at ? formatBuddhistDate(h.recounted_at, true) : '-';
+                const delta = h.recount_qty - h.system_qty;
+                const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+                const typeLabel = flagLabels[h.flag_type] || h.flag_type;
+                let matchStyle = 'color: #fbbf24;'; // Default yellow
+                if (h.flag_type === 'more_than') {
+                    matchStyle = 'color: #34d399;'; // Green
+                } else if (h.flag_type === 'less_than' || h.flag_type === 'out_of_stock') {
+                    matchStyle = 'color: #ef4444;'; // Red
+                } else if (h.flag_type === 'match') {
+                    matchStyle = 'color: #60a5fa;'; // Blue
+                }
+                
+                let deleteBtnHtml = '';
+                if (isAdmin) {
+                    deleteBtnHtml = `<button class="btn btn-icon" style="margin-left: 0.5rem; color: #ef4444; padding: 0.1rem; height: auto;" onclick="deleteRecountHistory('${sku}', ${h.id})" title="Delete record">
+                        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    </button>`;
+                }
+                
+                return `<div style="display:flex; justify-content:space-between; align-items:center; padding: 0.3rem 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.82rem;">
+                    <span style="color: var(--text-secondary);">${dateStr}</span>
+                    <span style="font-family: monospace; flex: 1; text-align: center; ${matchStyle}">นับ ${formatNumber(h.recount_qty)} / ระบบ ${formatNumber(h.system_qty)} (${deltaStr === '0' ? 'ตรง' : deltaStr})</span>
+                    <div style="display: flex; align-items: center;">
+                        <span style="font-size: 0.75rem; color: var(--text-secondary);">${escapeHtml(h.recounted_by || '-')}</span>
+                        ${deleteBtnHtml}
+                    </div>
+                </div>`;
+            }).join('');
+            // Don't auto-show the panel — user clicks the button to open it
+            // Show the history button so user knows history is available
+            if (els.btnRecountHistory) els.btnRecountHistory.classList.remove('hidden');
+        } else {
+            section.classList.add('hidden');
+            if (els.btnRecountHistory) els.btnRecountHistory.classList.add('hidden');
+        }
+    } catch (err) {
+        console.error('Error fetching recount history:', err);
+        section.style.display = 'none';
+    }
+}
+
+// Function to delete a recount history record (admin only)
+window.deleteRecountHistory = async function(sku, historyId) {
+    const isConfirmed = await customConfirm('Are you sure you want to delete this recount history record? This action cannot be undone.');
+    if (!isConfirmed) {
+        return;
+    }
+    try {
+        const res = await fetch(`/api/products/${sku}/recount-history/${historyId}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            // Re-fetch the history list automatically
+            fetchRecountHistory(sku);
+            showToast('History record deleted', 'success');
+        } else {
+            showToast('Failed to delete history record: ' + (data.error || data.message), 'error');
+        }
+    } catch (err) {
+        console.error('Error deleting recount history:', err);
+        showToast('Error deleting recount history', 'error');
     }
 }
 
 async function fetchFlags() {
     els.flagsList.innerHTML = `
         <tr>
-            <td colspan="8" class="text-center py-8">
+            <td colspan="9" class="text-center py-8">
                 <div class="spinner"></div>
                 <p class="text-muted mt-4">Loading flagged items...</p>
             </td>
@@ -3190,7 +3335,7 @@ async function fetchFlags() {
         console.error("Error fetching flags:", err);
         els.flagsList.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center py-8 text-error">
+                <td colspan="9" class="text-center py-8 text-error">
                     Failed to load flagged items.
                 </td>
             </tr>
@@ -3202,7 +3347,7 @@ function renderFlags() {
     if (state.flags.length === 0) {
         els.flagsList.innerHTML = `
             <tr>
-                <td colspan="8" class="text-center py-8 text-muted">
+                <td colspan="9" class="text-center py-8 text-muted">
                     No flagged items found.
                 </td>
             </tr>
@@ -3259,6 +3404,12 @@ function renderFlags() {
             <td><span class="brand-badge">${escapeHtml(f.brand || '-')}</span></td>
             <td class="text-right">
                 <span class="qty-badge">${formatNumber(f.system_qty)}</span>
+            </td>
+            <td class="text-right">
+                ${f.recount_qty !== null && f.recount_qty !== undefined
+                    ? `<span class="qty-badge" style="${f.recount_qty === 0 ? 'background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.3);' : f.recount_qty < f.system_qty ? 'background:rgba(245,158,11,0.2); color:#fbbf24; border:1px solid rgba(245,158,11,0.3);' : 'background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.3);'}">${formatNumber(f.recount_qty)}</span>`
+                    : '<span class="text-muted">-</span>'
+                }
             </td>
             <td>
                 <div><span class="badge" style="background: ${typeInfo.bg}; color: ${typeInfo.color}; border: 1px solid ${typeInfo.color}40;">${typeInfo.label}</span></div>
@@ -5204,9 +5355,13 @@ function _showUserUI() {
     }
 
     // Show admin panel button only for admin users
-    if (_currentUser.role === 'admin' && !_userUIBound) {
+    if (_currentUser.role === 'admin') {
         adminBtn.classList.remove('hidden');
-        adminBtn.addEventListener('click', _openAdminPanel);
+        if (!_userUIBound) {
+            adminBtn.addEventListener('click', _openAdminPanel);
+        }
+    } else {
+        adminBtn.classList.add('hidden');
     }
 
     // Logout button (shown for non-guest authenticated users)
@@ -5468,8 +5623,60 @@ async function _loadAdminUsers() {
     }
 }
 
+function customConfirm(message) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);';
+        
+        const card = document.createElement('div');
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        card.style.cssText = `background:${isLight ? '#fff' : '#1e293b'};color:${isLight ? '#000' : '#fff'};padding:1.5rem;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.5);max-width:350px;width:90%;text-align:center;border:1px solid ${isLight ? '#e2e8f0' : '#334155'};`;
+        
+        const extHtml = `<p style="margin-bottom:1.5rem;font-size:1rem;word-break:break-word;">${escapeHtml(message)}</p>
+        <div style="display:flex;gap:0.75rem;justify-content:center;">
+            <button id="cc-cancel" class="btn btn-outline" style="flex:1;">Cancel</button>
+            <button id="cc-confirm" class="btn btn-primary" style="flex:1;background:#ef4444;border-color:#ef4444;color:#fff;">Delete</button>
+        </div>`;
+        card.innerHTML = extHtml;
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        
+        document.getElementById('cc-cancel').onclick = () => { document.body.removeChild(overlay); resolve(false); };
+        document.getElementById('cc-confirm').onclick = () => { document.body.removeChild(overlay); resolve(true); };
+    });
+}
+
+function customPrompt(message) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);';
+        
+        const card = document.createElement('div');
+        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        card.style.cssText = `background:${isLight ? '#fff' : '#1e293b'};color:${isLight ? '#000' : '#fff'};padding:1.5rem;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,0.5);max-width:350px;width:90%;text-align:center;border:1px solid ${isLight ? '#e2e8f0' : '#334155'};`;
+        
+        const extHtml = `<p style="margin-bottom:1rem;font-size:0.95rem;text-align:left;">${escapeHtml(message)}</p>
+        <input type="text" id="cp-input" class="select-css" style="width:100%;margin-bottom:1.5rem;padding:0.5rem;" autocomplete="off">
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end;">
+            <button id="cp-cancel" class="btn btn-outline">Cancel</button>
+            <button id="cp-submit" class="btn btn-primary">Submit</button>
+        </div>`;
+        card.innerHTML = extHtml;
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        
+        const input = document.getElementById('cp-input');
+        input.focus();
+        
+        document.getElementById('cp-cancel').onclick = () => { document.body.removeChild(overlay); resolve(null); };
+        document.getElementById('cp-submit').onclick = () => { document.body.removeChild(overlay); resolve(input.value); };
+        input.onkeydown = (e) => { if (e.key === 'Enter') document.getElementById('cp-submit').click(); };
+    });
+}
+
 async function _adminDeleteUser(userId, username) {
-    if (!confirm(`Delete user "${username}"?`)) return;
+    const isConfirmed = await customConfirm(`Delete user "${username}"?`);
+    if (!isConfirmed) return;
     try {
         const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
         const data = await res.json();
@@ -5484,7 +5691,7 @@ async function _adminDeleteUser(userId, username) {
 }
 
 async function _adminResetPassword(userId, username) {
-    const newPw = prompt(`Enter new password for "${username}":`);
+    const newPw = await customPrompt(`Enter new password for "${username}":`);
     if (!newPw) return;
     try {
         const res = await fetch(`/api/admin/users/${userId}/reset-password`, {

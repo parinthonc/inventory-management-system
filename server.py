@@ -83,10 +83,37 @@ def init_flags_table():
         print('[Migration] Added flagged_by column to stock_flags')
     except Exception:
         pass  # Column already exists
+    # Migration: add recount_qty column for stock recount feature
+    try:
+        cursor.execute("ALTER TABLE stock_flags ADD COLUMN recount_qty INTEGER DEFAULT NULL")
+        print('[Migration] Added recount_qty column to stock_flags')
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     conn.close()
 
 init_flags_table()
+
+def init_recount_history_table():
+    """Create recount_history table to log every recount event (audit trail)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recount_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT NOT NULL,
+            recount_qty INTEGER NOT NULL,
+            system_qty INTEGER NOT NULL,
+            flag_type TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            recounted_at TEXT DEFAULT (datetime('now', 'localtime')),
+            recounted_by TEXT DEFAULT ''
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_recount_history_table()
 
 def init_photo_flags_table():
     """Create the photo_flags table for tracking products that need more photos.
@@ -1788,7 +1815,7 @@ def get_products():
             # Filter products that had sales within the threshold using CSV-sourced last_sold_date
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by, f.recount_qty,
                        CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
@@ -1806,7 +1833,7 @@ def get_products():
             # Default view: use CSV-sourced last_sold_date directly from products table
             query_select_from = """
                 SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                       f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by, f.recount_qty,
                        CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag
                 FROM products p
                 LEFT JOIN stock_flags f ON p.sku = f.sku
@@ -1921,7 +1948,7 @@ def get_product_detail(sku):
         cursor = conn.cursor()
         cursor.execute('''
             SELECT p.*, p.csv_last_sold_date as last_sold_date,
-                   f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+                   f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by, f.recount_qty,
                    CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END as photo_flag,
                    pf.note as photo_flag_note, pf.flagged_at as photo_flagged_at,
                    pf.flagged_by as photo_flagged_by
@@ -3224,6 +3251,7 @@ def _flags_order(sort_by, sort_dir):
         'name_eng': 'p.name_eng',
         'brand': 'p.brand',
         'system_qty': 'p.qty',
+        'recount_qty': 'f.recount_qty',
         'flag_type': 'f.flag_type',
         'flagged_at': 'f.flagged_at',
         'flagged_by': 'f.flagged_by',
@@ -3335,39 +3363,94 @@ def get_all_moves():
 
 @app.route('/api/products/<sku>/flag', methods=['POST'])
 def flag_product(sku):
-    data = request.json or {}
+    """Flag a product for stock discrepancy.
+
+    Supports two modes:
+    1. **Recount mode** (preferred): Send `recount_qty` (integer). The flag_type
+       is auto-determined by comparing recount_qty to the system qty.
+       If they match, any existing flag is removed.
+    2. **Legacy mode**: Send `flag_type` directly (out_of_stock/less_than/more_than).
+    """
+    data = request.get_json(force=True) or {}
     flag_type = data.get('flag_type')
+    recount_qty = data.get('recount_qty')  # new recount mode
     note = data.get('note', '')
     flagged_by = session.get('user', '')
-
-    if not flag_type or flag_type not in ['out_of_stock', 'less_than', 'more_than']:
-        return jsonify({'error': 'Invalid or missing flag_type'}), 400
 
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        
-        # Ensure product exists
-        cursor.execute('SELECT id FROM products WHERE sku = ?', (sku,))
-        if not cursor.fetchone():
+
+        # Ensure product exists and get system qty
+        cursor.execute('SELECT id, qty FROM products WHERE sku = ?', (sku,))
+        product = cursor.fetchone()
+        if not product:
             conn.close()
             return jsonify({'error': 'Product not found'}), 404
 
+        system_qty = product['qty'] or 0
+
+        # ── Recount mode: auto-determine flag_type from counted qty ──
+        if recount_qty is not None:
+            try:
+                recount_qty = int(recount_qty)
+            except (ValueError, TypeError):
+                return jsonify({'error': 'recount_qty must be an integer'}), 400
+
+            if recount_qty == system_qty:
+                # Stock matches — remove any existing flag
+                cursor.execute('DELETE FROM stock_flags WHERE sku = ?', (sku,))
+                # Log the recount in history even when stock matches
+                cursor.execute('''
+                    INSERT INTO recount_history (sku, recount_qty, system_qty, flag_type, note, recounted_by)
+                    VALUES (?, ?, ?, 'match', ?, ?)
+                ''', (sku, recount_qty, system_qty, note or 'สต็อกตรงกับระบบ', flagged_by))
+                conn.commit()
+                print(f"[Recount] Product {sku}: counted {recount_qty} == system {system_qty}, flag removed by {flagged_by}")
+                return jsonify({'status': 'success', 'message': 'Stock matches system — flag removed', 'match': True})
+
+            # Auto-determine flag type
+            if recount_qty == 0 and system_qty > 0:
+                flag_type = 'out_of_stock'
+            elif recount_qty < system_qty:
+                flag_type = 'less_than'
+            else:
+                flag_type = 'more_than'
+
+            # Auto-generate note if none provided
+            if not note:
+                delta = recount_qty - system_qty
+                delta_str = f"+{delta}" if delta > 0 else str(delta)
+                note = f"นับจริงได้ {recount_qty} (ระบบ {system_qty}, ต่างกัน {delta_str})"
+
+        else:
+            # Legacy mode: explicit flag_type required
+            if not flag_type or flag_type not in ['out_of_stock', 'less_than', 'more_than']:
+                return jsonify({'error': 'Invalid or missing flag_type'}), 400
+
         cursor.execute('''
-            INSERT INTO stock_flags (sku, flag_type, note, flagged_at, flagged_by)
-            VALUES (?, ?, ?, datetime('now', 'localtime'), ?)
+            INSERT INTO stock_flags (sku, flag_type, note, flagged_at, flagged_by, recount_qty)
+            VALUES (?, ?, ?, datetime('now', 'localtime'), ?, ?)
             ON CONFLICT(sku) DO UPDATE SET
                 flag_type = excluded.flag_type,
                 note = excluded.note,
                 flagged_at = datetime('now', 'localtime'),
-                flagged_by = excluded.flagged_by
-        ''', (sku, flag_type, note, flagged_by))
-        
+                flagged_by = excluded.flagged_by,
+                recount_qty = excluded.recount_qty
+        ''', (sku, flag_type, note, flagged_by, recount_qty))
+
+        # Log recount in history (only for recount mode, not legacy)
+        if recount_qty is not None:
+            cursor.execute('''
+                INSERT INTO recount_history (sku, recount_qty, system_qty, flag_type, note, recounted_by)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (sku, recount_qty, system_qty, flag_type, note, flagged_by))
+
         conn.commit()
     finally:
         conn.close()
-    print(f"[Flags] Product {sku} flagged as '{flag_type}' by {flagged_by}")
-    return jsonify({'status': 'success', 'message': 'Product flagged'})
+    print(f"[Recount] Product {sku} flagged as '{flag_type}' (counted={recount_qty}, system={system_qty}) by {flagged_by}")
+    return jsonify({'status': 'success', 'message': 'Product flagged', 'flag_type': flag_type})
 
 @app.route('/api/products/<sku>/flag', methods=['DELETE'])
 @admin_required
@@ -3381,6 +3464,42 @@ def unflag_product(sku):
     print(f"[Flags] Product {sku} resolved (unflagged) by {username}")
     return jsonify({'status': 'success', 'message': 'Product unflagged'})
 
+@app.route('/api/products/<sku>/recount-history')
+def get_recount_history(sku):
+    """Return recount history for a product, newest first."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, recount_qty, system_qty, flag_type, note, recounted_at, recounted_by
+        FROM recount_history
+        WHERE sku = ?
+        ORDER BY recounted_at DESC
+        LIMIT 20
+    ''', (sku,))
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({'history': rows})
+
+@app.route('/api/products/<sku>/recount-history/<int:history_id>', methods=['DELETE'])
+@admin_required
+def delete_recount_history(sku, history_id):
+    """Admin only: Delete a recount history record."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('SELECT id FROM recount_history WHERE id = ? AND sku = ?', (history_id, sku))
+    if not cursor.fetchone():
+        conn.close()
+        return jsonify({'error': 'History record not found'}), 404
+        
+    cursor.execute('DELETE FROM recount_history WHERE id = ?', (history_id,))
+    conn.commit()
+    conn.close()
+    
+    username = session.get('user', {}).get('username', 'unknown') if isinstance(session.get('user'), dict) else session.get('user', 'unknown')
+    print(f"[Recount] History record {history_id} for {sku} deleted by admin {username}")
+    return jsonify({'status': 'success', 'message': 'History record deleted'})
+
 @app.route('/api/flags')
 def get_flags():
     search = request.args.get('search', '').strip()
@@ -3391,6 +3510,7 @@ def get_flags():
 
     query_select = """
         SELECT f.id as flag_id, f.flag_type, f.note as flag_note, f.flagged_at, f.flagged_by,
+               f.recount_qty,
                p.*, p.qty as system_qty
         FROM stock_flags f
         JOIN products p ON f.sku = p.sku
