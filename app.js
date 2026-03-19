@@ -2297,6 +2297,7 @@ function _setupUploadHandlers() {
     if (!uploadBtn || !fileInput) return;
 
     let _isAddingMore = false;  // true when user taps "เพิ่มรูป"
+    let _lastUsedInput = fileInput;  // track which input (camera vs gallery) was used last
 
     // Helper: add a single file's preview thumbnail to the preview area (with delete button)
     function _addPreviewThumb(file) {
@@ -2372,6 +2373,7 @@ function _setupUploadHandlers() {
     // "เลือกรูป" (Gallery) button → trigger file input without capture (opens file picker / gallery)
     uploadBtn.addEventListener('click', () => {
         _isAddingMore = false;
+        _lastUsedInput = fileInput;
         fileInput.click();
     });
 
@@ -2379,6 +2381,7 @@ function _setupUploadHandlers() {
     if (takePhotoBtn && cameraInput) {
         takePhotoBtn.addEventListener('click', () => {
             _isAddingMore = false;
+            _lastUsedInput = cameraInput;
             cameraInput.click();
         });
         cameraInput.addEventListener('change', _handleFileInputChange);
@@ -2391,7 +2394,7 @@ function _setupUploadHandlers() {
     if (addMoreBtn) {
         addMoreBtn.addEventListener('click', () => {
             _isAddingMore = true;
-            fileInput.click();
+            _lastUsedInput.click();
         });
     }
 
