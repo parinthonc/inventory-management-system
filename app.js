@@ -3238,13 +3238,13 @@ async function fetchRecountHistory(sku) {
                 const delta = h.recount_qty - h.system_qty;
                 const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
                 const typeLabel = flagLabels[h.flag_type] || h.flag_type;
-                let matchStyle = 'color: #fbbf24;'; // Default yellow
+                let matchStyle = 'color: #000000;';
                 if (h.flag_type === 'more_than') {
-                    matchStyle = 'color: #34d399;'; // Green
+                    matchStyle = 'color: #000000;'; 
                 } else if (h.flag_type === 'less_than' || h.flag_type === 'out_of_stock') {
-                    matchStyle = 'color: #ef4444;'; // Red
+                    matchStyle = 'color: #000000;'; 
                 } else if (h.flag_type === 'match') {
-                    matchStyle = 'color: #60a5fa;'; // Blue
+                    matchStyle = 'color: #000000;'; 
                 }
                 
                 let deleteBtnHtml = '';
