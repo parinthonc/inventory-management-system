@@ -3066,6 +3066,279 @@ h4 {
 
 }
 
+/* ─── Mobile Landscape: Optimized modal layout for product photography ────── */
+/* When the phone is held landscape (short height, wide width), restore a
+   side-by-side layout so the image area gets maximum height and the
+   details/upload controls scroll on the right side. */
+
+@media (max-width: 900px) and (orientation: landscape) {
+    /* Modal body: allow internal scrolling */
+    .modal-body {
+        overflow: hidden;
+    }
+
+    /* Top row: side-by-side instead of stacked */
+    .modal-top-row {
+        flex-direction: row;
+        max-height: none;
+        flex: 1;
+        min-height: 0;
+    }
+
+    /* Gallery: left side, full available height */
+    .modal-gallery {
+        flex: 0 0 50%;
+        max-width: 50%;
+        max-height: none;
+        border-right: 1px solid var(--border-color);
+        border-bottom: none;
+        flex-direction: column;
+        flex-wrap: nowrap;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    /* Main image: use all available vertical space */
+    .main-image-container {
+        max-height: none;
+        flex: 1;
+        min-height: 0;
+    }
+
+    /* Thumbnail strip: horizontal row below image */
+    .thumbnail-strip {
+        flex-direction: row;
+        max-width: 100%;
+        max-height: 50px;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .gallery-thumb {
+        width: 36px;
+        height: 36px;
+    }
+
+    /* Image caption bar: compact, full row */
+    .image-caption-bar {
+        order: unset;
+        flex-basis: auto;
+        font-size: 0.65rem;
+    }
+
+    /* Upload controls: compact inline */
+    .custom-image-controls {
+        order: unset;
+        flex-basis: auto;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+    }
+
+    .btn-upload-photo {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.7rem;
+        width: auto;
+    }
+
+    /* Upload dialog: inside gallery column, scroll-safe */
+    .upload-dialog {
+        order: unset;
+        flex-basis: auto;
+        width: 100%;
+    }
+
+    .upload-dialog-preview {
+        max-height: 80px;
+    }
+
+    .upload-dialog-actions {
+        flex-direction: row;
+    }
+
+    .upload-dialog-actions .btn {
+        width: auto;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+    }
+
+    /* Details: right side, scrollable */
+    .modal-details {
+        flex: 1;
+        padding: 0.5rem 0.75rem;
+        overflow-y: auto;
+    }
+
+    /* Product info: compact for landscape */
+    .part-code {
+        font-size: 1.2rem;
+    }
+
+    .name-eng {
+        font-size: 0.75rem;
+    }
+
+    .sku-badge {
+        font-size: 0.7rem;
+        padding: 0.1rem 0.4rem;
+    }
+
+    .detail-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.3rem;
+    }
+
+    .detail-item .label {
+        font-size: 0.6rem;
+    }
+
+    .detail-item .value {
+        font-size: 0.75rem;
+    }
+
+    /* Report/action buttons: compact */
+    .modal-action-buttons {
+        flex-wrap: wrap;
+    }
+
+    .modal-action-buttons .btn {
+        font-size: 0.75rem !important;
+        padding: 0.3rem 0.5rem !important;
+    }
+
+    /* Sales by year: compact */
+    .sales-by-year-grid {
+        gap: 0.3rem;
+    }
+
+    .year-card {
+        min-width: 50px;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .year-card .year-label {
+        font-size: 0.6rem;
+    }
+
+    .year-card .year-qty {
+        font-size: 0.8rem;
+    }
+
+    /* Bottom row: hide or minimize in landscape to save space */
+    .modal-bottom-row {
+        flex-direction: row;
+        flex: 0 0 auto;
+        max-height: 0;
+        overflow: hidden;
+        border-top: none;
+    }
+
+    /* Modal nav controls: compact */
+    .modal-nav-controls {
+        top: 0.25rem;
+        left: 0.25rem;
+        padding: 0.15rem 0.35rem;
+        gap: 0.2rem;
+    }
+
+    .btn-nav {
+        width: 24px;
+        height: 24px;
+    }
+
+    .nav-indicator {
+        font-size: 0.7rem;
+        min-width: 2rem;
+    }
+
+    .btn-close {
+        top: 0.25rem;
+        right: 0.25rem;
+        width: 30px;
+        height: 30px;
+    }
+
+    /* Report dialog: compact in landscape */
+    #report-dialog {
+        padding: 0.5rem !important;
+    }
+
+    #recount-qty-input {
+        font-size: 1.1rem !important;
+    }
+
+    #recount-system-qty {
+        font-size: 1.1rem !important;
+    }
+
+    #btn-report-issue {
+        font-size: 0.8rem !important;
+    }
+
+    /* Photo flag dialog: compact */
+    #photo-flag-dialog textarea {
+        max-height: 2.5em;
+    }
+}
+
+/* ─── Mobile Landscape: Photo Flags Upload Overlay ──────────────────────── */
+@media (max-width: 900px) and (orientation: landscape) {
+    .pf-upload-overlay {
+        padding: 0.5rem;
+        align-items: center;
+    }
+
+    .pf-upload-card {
+        max-width: 90%;
+        max-height: 95vh;
+        border-radius: var(--radius-lg, 12px);
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .pf-upload-header {
+        flex-basis: 100%;
+        margin-bottom: 0;
+    }
+
+    .pf-upload-preview {
+        flex: 1;
+        max-height: 60vh;
+        min-height: 60px;
+        margin-bottom: 0;
+    }
+
+    .pf-upload-preview .upload-preview-thumb img {
+        width: 48px;
+        height: 48px;
+    }
+
+    .pf-upload-fields {
+        flex-basis: 100%;
+        margin-bottom: 0.25rem;
+    }
+
+    .pf-upload-actions {
+        flex-basis: 100%;
+        flex-direction: row;
+        gap: 0.5rem;
+    }
+
+    .pf-upload-actions .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem;
+        min-height: 40px;
+    }
+
+    .pf-btn-add-more {
+        min-height: 36px;
+        font-size: 0.8rem;
+        padding: 0.3rem 0.5rem;
+    }
+}
+
 /* ─── Image Hover Preview ──────────────────────────────────── */
 .image-hover-preview {
     position: fixed;
