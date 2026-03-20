@@ -3099,7 +3099,7 @@ def refresh_ledger():
         # 1. Run the Python extraction script (writes to .new temp file)
         script_path = os.path.join(os.path.dirname(__file__), 'python script', 'extract_stock_ledger_v4.py')
         print(f"Running ledger extraction script: {script_path}")
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True, timeout=600)
         
         if result.returncode != 0:
             print("Extraction script failed.")
@@ -3114,6 +3114,8 @@ def refresh_ledger():
             'success': True,
             'message': f'Script ran successfully. Refreshed ledger data: {len(archived_qty_cache)} qty values, {len(archived_last_sale_cache)} sale dates.'
         })
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'message': 'Script timed out after 10 minutes'}), 500
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
