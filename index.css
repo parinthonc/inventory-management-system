@@ -4445,10 +4445,10 @@ h4 {
     }
 }
 
-/* ── Pickup Flag Button ──────────────────────────────────────────────────── */
-.pickup-flag-btn {
+/* ── Pickup Recount Button ───────────────────────────────────────────────── */
+.pickup-recount-btn {
     background: none;
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid rgba(99, 102, 241, 0.25);
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.85rem;
@@ -4459,36 +4459,37 @@ h4 {
     opacity: 0.5;
 }
 
-.pickup-flag-btn:hover {
+.pickup-recount-btn:hover {
     opacity: 1;
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.5);
     transform: scale(1.1);
 }
 
-/* ── Pickup Flag Popup ───────────────────────────────────────────────────── */
-.pickup-flag-popup {
+/* ── Pickup Recount Popup ────────────────────────────────────────────────── */
+.pickup-recount-popup {
     position: fixed;
     z-index: 9999;
     background: var(--bg-card);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
-    padding: 0.75rem;
-    min-width: 200px;
+    padding: 0.85rem;
+    min-width: 220px;
+    max-width: 280px;
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
     backdrop-filter: var(--glass-blur);
-    animation: pickupFlagPopupIn 0.15s ease-out;
+    animation: pickupRecountPopupIn 0.15s ease-out;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.55rem;
 }
 
-@keyframes pickupFlagPopupIn {
+@keyframes pickupRecountPopupIn {
     from { opacity: 0; transform: translateY(-4px) scale(0.95); }
     to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.pickup-flag-popup-title {
+.pickup-recount-popup-title {
     font-weight: 700;
     font-size: 0.85rem;
     color: var(--text-primary);
@@ -4497,45 +4498,156 @@ h4 {
     margin-bottom: 0.1rem;
 }
 
-.pickup-flag-popup-title small {
+.pickup-recount-popup-title small {
     font-weight: 500;
     font-family: monospace;
     color: var(--text-secondary);
 }
 
-.pickup-flag-option {
+.pickup-recount-system-qty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    background: rgba(59, 130, 246, 0.08);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.pickup-recount-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.pickup-recount-value {
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #60a5fa;
+}
+
+.pickup-recount-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pickup-recount-input {
+    flex: 1;
+    padding: 0.55rem 0.65rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-strong);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text-primary);
+    font-family: monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    -moz-appearance: textfield;
+    appearance: textfield;
+    min-width: 0;
+}
+
+.pickup-recount-input::-webkit-inner-spin-button,
+.pickup-recount-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.pickup-recount-input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+
+.pickup-recount-input.shake {
+    animation: recountShake 0.3s ease;
+    border-color: #ef4444;
+}
+
+@keyframes recountShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+}
+
+.pickup-recount-submit {
     display: block;
     width: 100%;
-    text-align: left;
     padding: 0.6rem 0.75rem;
-    border: 1px solid transparent;
+    border: none;
     border-radius: var(--radius-sm);
-    background: none;
-    color: var(--text-primary);
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
     font-size: 0.9rem;
+    font-weight: 600;
     font-family: inherit;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
     min-height: 44px;
 }
 
-.pickup-flag-option:hover {
-    background: rgba(255, 255, 255, 0.06);
+.pickup-recount-submit:hover:not(:disabled) {
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    transform: translateY(-1px);
 }
 
-.pickup-flag-option.out-of-stock:hover {
-    background: rgba(239, 68, 68, 0.12);
-    border-color: rgba(239, 68, 68, 0.3);
+.pickup-recount-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
-.pickup-flag-option.less-than:hover {
-    background: rgba(245, 158, 11, 0.12);
-    border-color: rgba(245, 158, 11, 0.3);
+.pickup-recount-status {
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--radius-sm);
+    text-align: center;
 }
 
-.pickup-flag-option.more-than:hover {
-    background: rgba(16, 185, 129, 0.12);
-    border-color: rgba(16, 185, 129, 0.3);
+.pickup-recount-status.success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.pickup-recount-status.error {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Light theme overrides for recount popup */
+[data-theme="light"] .pickup-recount-popup {
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .pickup-recount-input {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .pickup-recount-system-qty {
+    background: rgba(37, 99, 235, 0.06);
+    border-color: rgba(37, 99, 235, 0.12);
+}
+
+[data-theme="light"] .pickup-recount-value {
+    color: #2563eb;
+}
+
+[data-theme="light"] .pickup-recount-status.success {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+[data-theme="light"] .pickup-recount-status.error {
+    background: rgba(239, 68, 68, 0.08);
+    color: #dc2626;
+    border-color: rgba(239, 68, 68, 0.2);
 }
 
 /* ── Flagged Item Visual ─────────────────────────────────────────────────── */

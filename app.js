@@ -3832,7 +3832,7 @@ function renderPickupMode(data) {
             html += `    ${flagBadge}`;
             html += `  </div>`;
             html += `  ${ghostBadge}`;
-            html += `  <button class="pickup-flag-btn" data-sku="${item.sku}" data-part="${escapeHtml(item.part_code)}" title="แจ้งปัญหาสต็อก">🚩</button>`;
+            html += `  <button class="pickup-recount-btn" data-sku="${item.sku}" data-part="${escapeHtml(item.part_code)}" data-qty="${item.qty != null ? item.qty : ''}" title="นับสต็อกจริง">🔢</button>`;
             html += `  ${checkedByLabel}`;
             html += `  <span class="pickup-item-qty">${qtyDisplay}</span>`;
             html += `</div>`;
@@ -3852,11 +3852,11 @@ function renderPickupMode(data) {
 /** Handle clicking a pickup item to toggle checked state.
  *  3-state cycle: unchecked → checked (green ✓) → crossed (red ✗) → unchecked */
 async function handlePickupItemClick(e) {
-    // If the flag button was clicked, handle that instead
-    const flagBtn = e.target.closest('.pickup-flag-btn');
-    if (flagBtn) {
+    // If the recount button was clicked, handle that instead
+    const recountBtn = e.target.closest('.pickup-recount-btn');
+    if (recountBtn) {
         e.stopPropagation();
-        showPickupFlagPopup(flagBtn);
+        showPickupRecountPopup(recountBtn);
         return;
     }
 
@@ -3959,23 +3959,32 @@ function _updatePickupCounters() {
     updatePickupProgress(doneItems.length, allItems.length);
 }
 
-/** Show a quick flag-type popup near the flag button. */
-function showPickupFlagPopup(btn) {
+/** Show a stock recount popup near the recount button. */
+function showPickupRecountPopup(btn) {
     // Remove any existing popup
-    const existing = document.getElementById('pickup-flag-popup');
+    const existing = document.getElementById('pickup-recount-popup');
     if (existing) existing.remove();
 
     const sku = btn.dataset.sku;
     const partCode = btn.dataset.part;
+    const systemQty = btn.dataset.qty !== '' ? parseInt(btn.dataset.qty, 10) : null;
+    const systemQtyDisplay = systemQty != null ? formatNumber(systemQty) : '-';
 
     const popup = document.createElement('div');
-    popup.id = 'pickup-flag-popup';
-    popup.className = 'pickup-flag-popup';
+    popup.id = 'pickup-recount-popup';
+    popup.className = 'pickup-recount-popup';
     popup.innerHTML = `
-        <div class="pickup-flag-popup-title">🚩 แจ้งปัญหาสต็อก<br><small>${partCode}</small></div>
-        <button class="pickup-flag-option out-of-stock" data-type="out_of_stock">⚠ สินค้าหมด (ระบบยังแสดง)</button>
-        <button class="pickup-flag-option less-than" data-type="less_than">⚠ สินค้าจริงน้อยกว่าระบบ</button>
-        <button class="pickup-flag-option more-than" data-type="more_than">ℹ สินค้าจริงมากกว่าระบบ</button>
+        <div class="pickup-recount-popup-title">🔢 นับสต็อกจริง<br><small>${partCode}</small></div>
+        <div class="pickup-recount-system-qty">
+            <span class="pickup-recount-label">ระบบ:</span>
+            <span class="pickup-recount-value">${systemQtyDisplay}</span>
+        </div>
+        <div class="pickup-recount-input-row">
+            <label class="pickup-recount-label" for="pickup-recount-input">นับได้จริง:</label>
+            <input type="number" id="pickup-recount-input" class="pickup-recount-input" min="0" step="1" placeholder="0" inputmode="numeric" autocomplete="off">
+        </div>
+        <button class="pickup-recount-submit" id="pickup-recount-submit-btn">✅ บันทึก</button>
+        <div class="pickup-recount-status" id="pickup-recount-status" style="display:none;"></div>
     `;
 
     document.body.appendChild(popup);
@@ -3985,55 +3994,141 @@ function showPickupFlagPopup(btn) {
     popup.style.top = (rect.bottom + 4) + 'px';
     popup.style.right = (window.innerWidth - rect.right) + 'px';
 
-    // Handle option clicks
-    popup.querySelectorAll('.pickup-flag-option').forEach(opt => {
-        opt.addEventListener('click', async () => {
-            const flagType = opt.dataset.type;
-            opt.disabled = true;
-            opt.textContent = '⏳ กำลังบันทึก...';
+    // Ensure popup stays within viewport
+    requestAnimationFrame(() => {
+        const popupRect = popup.getBoundingClientRect();
+        if (popupRect.bottom > window.innerHeight) {
+            popup.style.top = '';
+            popup.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
+        }
+        if (popupRect.left < 8) {
+            popup.style.right = '';
+            popup.style.left = '8px';
+        }
+    });
 
-            try {
-                const res = await fetch(`/api/products/${sku}/flag`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ flag_type: flagType, note: 'แจ้งจากหน้าหยิบสินค้า' })
-                });
+    // Focus the input
+    const input = popup.querySelector('#pickup-recount-input');
+    setTimeout(() => input.focus(), 100);
 
-                if (res.ok) {
-                    // Mark the item visually as flagged
-                    const itemEl = document.querySelector(`.pickup-item[data-sku="${sku}"]`);
-                    if (itemEl) {
+    // Handle submit
+    const submitBtn = popup.querySelector('#pickup-recount-submit-btn');
+    const statusEl = popup.querySelector('#pickup-recount-status');
+
+    async function doSubmit() {
+        const val = input.value.trim();
+        if (val === '' || isNaN(parseInt(val, 10)) || parseInt(val, 10) < 0) {
+            input.classList.add('shake');
+            setTimeout(() => input.classList.remove('shake'), 400);
+            input.focus();
+            return;
+        }
+
+        const recountQty = parseInt(val, 10);
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ กำลังบันทึก...';
+
+        try {
+            const res = await fetch(`/api/products/${sku}/flag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recount_qty: recountQty, note: 'นับจากหน้าหยิบสินค้า' })
+            });
+
+            const data = await res.json();
+
+            if (res.ok) {
+                const itemEl = document.querySelector(`.pickup-item[data-sku="${sku}"]`);
+                if (itemEl) {
+                    // Remove old flag classes
+                    itemEl.classList.remove('pickup-flagged', 'pickup-flag-out_of_stock', 'pickup-flag-less_than', 'pickup-flag-more_than');
+                    const oldBadge = itemEl.querySelector('.pickup-flagged-badge');
+                    if (oldBadge) oldBadge.remove();
+
+                    if (data.action === 'flag_removed') {
+                        // Stock matches — show brief success
+                        statusEl.textContent = '✅ สต็อกตรงกับระบบ — ลบ flag แล้ว';
+                        statusEl.className = 'pickup-recount-status success';
+                        statusEl.style.display = 'block';
+                    } else {
+                        const flagType = data.flag_type || 'out_of_stock';
+                        const flagLabels = { out_of_stock: '⚠ สินค้าหมด', less_than: '⚠ น้อยกว่าระบบ', more_than: 'ℹ มากกว่าระบบ' };
                         itemEl.classList.add('pickup-flagged', `pickup-flag-${flagType}`);
-                        // Add a small flagged badge if not already there
-                        if (!itemEl.querySelector('.pickup-flagged-badge')) {
-                            const badge = document.createElement('span');
-                            badge.className = `pickup-flagged-badge ${flagType}`;
-                            const labels = { out_of_stock: '⚠ สินค้าหมด (ระบบยังแสดง)', less_than: '⚠ สินค้าจริงน้อยกว่าระบบ', more_than: 'ℹ สินค้าจริงมากกว่าระบบ' };
-                            badge.textContent = labels[flagType] || '🚩 แจ้งแล้ว';
-                            itemEl.querySelector('.pickup-item-info').appendChild(badge);
+
+                        // Add recount badge
+                        const badge = document.createElement('span');
+                        badge.className = `pickup-flagged-badge ${flagType}`;
+                        const delta = recountQty - (systemQty || 0);
+                        const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
+                        badge.textContent = `${flagLabels[flagType]} (นับ ${recountQty}, ${deltaStr})`;
+                        itemEl.querySelector('.pickup-item-info').appendChild(badge);
+
+                        statusEl.textContent = '✅ บันทึกแล้ว';
+                        statusEl.className = 'pickup-recount-status success';
+                        statusEl.style.display = 'block';
+                    }
+
+                    // Auto-check item off
+                    if (!itemEl.classList.contains('checked') && !itemEl.classList.contains('crossed')) {
+                        itemEl.classList.add('checked');
+                        try {
+                            await fetch(`/api/pickup-checks/${encodeURIComponent(sku)}`, { method: 'POST' });
+                        } catch (err) {
+                            console.error('[Pickup] Error auto-checking recounted item:', err);
                         }
-                        // Auto-check item off via server (since they reported it, they're done with it)
-                        if (!itemEl.classList.contains('checked')) {
-                            itemEl.classList.add('checked');
-                            try {
-                                await fetch(`/api/pickup-checks/${encodeURIComponent(sku)}`, { method: 'POST' });
-                            } catch (err) {
-                                console.error('[Pickup] Error auto-checking flagged item:', err);
+                        _updatePickupCounters();
+
+                        // Update group header counter
+                        const groupEl = itemEl.closest('.pickup-location-group');
+                        if (groupEl) {
+                            const items = groupEl.querySelectorAll('.pickup-item');
+                            const total = items.length;
+                            const groupChecked = groupEl.querySelectorAll('.pickup-item.checked, .pickup-item.crossed').length;
+                            const headerCheck = groupEl.querySelector('.pickup-location-check');
+                            if (groupChecked === total) {
+                                if (headerCheck) headerCheck.innerHTML = '✅ ครบแล้ว';
+                                else {
+                                    const hdr = groupEl.querySelector('.pickup-location-header');
+                                    const span = document.createElement('span');
+                                    span.className = 'pickup-location-check';
+                                    span.innerHTML = '✅ ครบแล้ว';
+                                    hdr.appendChild(span);
+                                }
+                            } else if (groupChecked > 0) {
+                                if (headerCheck) headerCheck.textContent = `${groupChecked}/${total}`;
+                                else {
+                                    const hdr = groupEl.querySelector('.pickup-location-header');
+                                    const span = document.createElement('span');
+                                    span.className = 'pickup-location-check';
+                                    span.textContent = `${groupChecked}/${total}`;
+                                    hdr.appendChild(span);
+                                }
                             }
-                            _updatePickupCounters();
                         }
                     }
-                    popup.remove();
-                } else {
-                    opt.textContent = '⚠️ ไม่สำเร็จ';
-                    setTimeout(() => popup.remove(), 1500);
                 }
-            } catch (err) {
-                console.error('[Pickup] Flag error:', err);
-                opt.textContent = '⚠️ ไม่สำเร็จ';
-                setTimeout(() => popup.remove(), 1500);
+
+                setTimeout(() => popup.remove(), 800);
+            } else {
+                statusEl.textContent = `⚠️ ${data.error || 'ไม่สำเร็จ'}`;
+                statusEl.className = 'pickup-recount-status error';
+                statusEl.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = '✅ บันทึก';
             }
-        });
+        } catch (err) {
+            console.error('[Pickup] Recount error:', err);
+            statusEl.textContent = '⚠️ ไม่สำเร็จ';
+            statusEl.className = 'pickup-recount-status error';
+            statusEl.style.display = 'block';
+            submitBtn.disabled = false;
+            submitBtn.textContent = '✅ บันทึก';
+        }
+    }
+
+    submitBtn.addEventListener('click', doSubmit);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doSubmit();
     });
 
     // Close on outside click
