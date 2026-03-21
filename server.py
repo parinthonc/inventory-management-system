@@ -1399,6 +1399,8 @@ def _reload_master_from_csv():
     # No need to re-read the ledger CSV — only the product table changed.
     _sync_csv_data_to_db()
     _build_moves_list()
+    # Restore last_photo_date from filesystem (lost during DELETE FROM products)
+    _update_last_photo_dates()
     print(f"Product master refreshed: {count} active products loaded from CSV.")
 
 
@@ -1602,6 +1604,7 @@ def get_sync_config():
 
 
 @app.route('/api/sync/config', methods=['POST'])
+@admin_required
 def set_sync_config():
     """Update auto-sync enabled/disabled state per source, watcher_debug, and cooldown settings."""
     global _watcher_debug, _cooldown_threshold, _cooldown_seconds
@@ -1647,6 +1650,7 @@ def set_sync_config():
 
 
 @app.route('/api/sync/trigger/<source_key>', methods=['POST'])
+@admin_required
 def trigger_sync(source_key):
     """Manually trigger a background sync for a specific source (always works, ignores toggle)."""
     if source_key not in SERVER_SOURCE_FILES:
@@ -1789,7 +1793,7 @@ def get_products():
         sort_by = request.args.get('sort', 'last_sold_date')
         sort_dir = request.args.get('dir', 'desc').lower()
         page = int(request.args.get('page', 1))
-        per_page = max(1, int(request.args.get('per_page', 50)))
+        per_page = min(500, max(1, int(request.args.get('per_page', 50))))
 
         valid_sorts = ['part_code', 'name_eng', 'name_thai', 'brand', 'qty', 'sale_price', 'suffix', 'size', 'locations', 'last_sold_date', 'amount_sold', 'relevance', 'last_photo_date']
         if sort_by not in valid_sorts:
@@ -2408,6 +2412,7 @@ def _resolve_image_dir(sku):
 
 
 @app.route('/api/products/<sku>/images/hide', methods=['POST'])
+@admin_required
 def hide_product_image(sku):
     """Rename an image file with _hidden_ prefix to remove it from the gallery."""
     data = request.get_json(force=True)
@@ -2431,6 +2436,7 @@ def hide_product_image(sku):
 
 
 @app.route('/api/products/<sku>/images/unhide', methods=['POST'])
+@admin_required
 def unhide_product_image(sku):
     """Remove the _hidden_ prefix from a previously hidden image."""
     data = request.get_json(force=True)
@@ -2815,7 +2821,7 @@ def get_customers():
 
     search = request.args.get('search', '').strip().lower()
     page = int(request.args.get('page', 1))
-    per_page = max(1, int(request.args.get('per_page', 50)))
+    per_page = min(500, max(1, int(request.args.get('per_page', 50))))
 
     # Build filtered list
     all_customers = list(customer_master_cache.values())
@@ -2883,6 +2889,7 @@ def get_customer_detail(code):
 
 
 @app.route('/api/refresh-customer-master', methods=['POST'])
+@admin_required
 def refresh_customer_master():
     """Run extract_customer_master.py, then reload the customer master cache."""
     try:
@@ -2981,7 +2988,7 @@ def get_invoices():
     search = request.args.get('search', '').strip().lower()
     doc_type = request.args.get('doc_type', '').strip().upper()  # IV, OR, or empty=all
     page = int(request.args.get('page', 1))
-    per_page = max(1, int(request.args.get('per_page', 50)))
+    per_page = min(500, max(1, int(request.args.get('per_page', 50))))
     sort_by = request.args.get('sort', 'invoice_date').strip()
     sort_dir = request.args.get('dir', 'desc').lower()
 
@@ -3062,6 +3069,7 @@ def get_invoice_detail(invoice_number):
 
 
 @app.route('/api/refresh-invoices', methods=['POST'])
+@admin_required
 def refresh_invoices():
     """Run extract_invoice.py, then reload the invoice caches."""
     try:
@@ -3093,6 +3101,7 @@ def refresh_invoices():
 
 
 @app.route('/api/refresh-ledger', methods=['POST'])
+@admin_required
 def refresh_ledger():
     """Run the ledger extraction script, reload the CSV, and sync data to the DB."""
     try:
@@ -3120,6 +3129,7 @@ def refresh_ledger():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/api/refresh-master', methods=['POST'])
+@admin_required
 def refresh_master():
     """Run extract_product_master.py, then load product_master_active.csv into the products table."""
     try:
@@ -3203,6 +3213,9 @@ def refresh_master():
         global archived_history_cache
         archived_history_cache = None  # Force full reload on next access
         load_archived_history_cache()
+
+        # 5. Restore last_photo_date from filesystem (lost during DELETE FROM products)
+        _update_last_photo_dates()
 
         print(f"Product master refreshed: {count} active products loaded from CSV.")
         return jsonify({

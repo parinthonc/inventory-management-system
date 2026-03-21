@@ -2756,7 +2756,7 @@ async function getForkliftBrands() {
 }
 
 function escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function escapeRegex(str) {
@@ -3238,13 +3238,13 @@ async function fetchRecountHistory(sku) {
                 const delta = h.recount_qty - h.system_qty;
                 const deltaStr = delta > 0 ? `+${delta}` : `${delta}`;
                 const typeLabel = flagLabels[h.flag_type] || h.flag_type;
-                let matchStyle = 'color: #000000;';
+                let matchStyle = 'color: var(--text-primary, #ccc);';
                 if (h.flag_type === 'more_than') {
-                    matchStyle = 'color: #000000;'; 
+                    matchStyle = 'color: #34d399;'; 
                 } else if (h.flag_type === 'less_than' || h.flag_type === 'out_of_stock') {
-                    matchStyle = 'color: #000000;'; 
+                    matchStyle = 'color: #f87171;'; 
                 } else if (h.flag_type === 'match') {
-                    matchStyle = 'color: #000000;'; 
+                    matchStyle = 'color: #34d399;'; 
                 }
                 
                 let deleteBtnHtml = '';
@@ -3566,7 +3566,7 @@ function renderPhotoFlags() {
     if (state.photoFlags.length === 0) {
         els.photoFlagsList.innerHTML = `
             <tr>
-                <td colspan="11" class="text-center py-8 text-muted">
+                <td colspan="12" class="text-center py-8 text-muted">
                     ไม่มีรายการที่ต้องถ่ายรูป
                 </td>
             </tr>
@@ -4072,7 +4072,11 @@ function showPickupRecountPopup(btn) {
                     if (!itemEl.classList.contains('checked') && !itemEl.classList.contains('crossed')) {
                         itemEl.classList.add('checked');
                         try {
-                            await fetch(`/api/pickup-checks/${encodeURIComponent(sku)}`, { method: 'POST' });
+                            await fetch(`/api/pickup-checks/${encodeURIComponent(sku)}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ status: 'checked' })
+                            });
                         } catch (err) {
                             console.error('[Pickup] Error auto-checking recounted item:', err);
                         }
@@ -4108,7 +4112,10 @@ function showPickupRecountPopup(btn) {
                     }
                 }
 
-                setTimeout(() => popup.remove(), 800);
+                setTimeout(() => {
+                    if (popup._closeHandler) popup._closeHandler();
+                    popup.remove();
+                }, 800);
             } else {
                 statusEl.textContent = `⚠️ ${data.error || 'ไม่สำเร็จ'}`;
                 statusEl.className = 'pickup-recount-status error';
@@ -4132,14 +4139,25 @@ function showPickupRecountPopup(btn) {
     });
 
     // Close on outside click
+    let _closePopupHandler = null;
     setTimeout(() => {
-        document.addEventListener('click', function closePopup(ev) {
+        _closePopupHandler = function closePopup(ev) {
             if (!popup.contains(ev.target) && ev.target !== btn) {
                 popup.remove();
-                document.removeEventListener('click', closePopup);
+                document.removeEventListener('click', _closePopupHandler);
+                _closePopupHandler = null;
             }
-        });
+        };
+        document.addEventListener('click', _closePopupHandler);
     }, 50);
+
+    // Store handler ref on popup so auto-close can clean it up
+    popup._closeHandler = () => {
+        if (_closePopupHandler) {
+            document.removeEventListener('click', _closePopupHandler);
+            _closePopupHandler = null;
+        }
+    };
 }
 
 /** Update the pickup progress bar and text. */
@@ -5014,7 +5032,7 @@ async function openInvoiceDetail(invoiceNumber) {
         evtSource.onerror = () => {
             evtSource.close();
             syncDot.className = 'sync-dot idle';
-            syncLabel.textContent = 'Auto-Sync: Reconnecting...';
+            syncLabel.textContent = (syncLabel.textContent || 'Auto-Sync').replace(/: Reconnecting\.\.\./, '') + ': Reconnecting...';
             clearTimeout(reconnectTimer);
             reconnectTimer = setTimeout(connectSSE, 5000);
         };
@@ -5244,10 +5262,10 @@ function showDisappearedWarning(count, transactions) {
 
         transactions.forEach(t => {
             html += `<tr>
-                <td>${t.date || '-'}</td>
-                <td>${t.doc_ref || '-'}</td>
-                <td>${t.part_code || '-'}</td>
-                <td style="font-family: var(--font-sans);">${t.category_name || '-'}</td>
+                <td>${escapeHtml(t.date || '-')}</td>
+                <td>${escapeHtml(t.doc_ref || '-')}</td>
+                <td>${escapeHtml(t.part_code || '-')}</td>
+                <td style="font-family: var(--font-sans);">${escapeHtml(t.category_name || '-')}</td>
                 <td>${t.qty_in || 0}</td>
                 <td>${t.qty_out || 0}</td>
             </tr>`;
